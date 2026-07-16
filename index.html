@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoxelVerse — 3D Multiplayer Voxel Game</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧊</text></svg>">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0b1220;
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif; color:#e8eefc;
+    -webkit-user-select:none; user-select:none; }
+  canvas#game { display:block; width:100%; height:100%; }
+  .hidden { display:none !important; }
+
+  /* ---------- overlays ---------- */
+  .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(1200px 700px at 50% 30%, rgba(38,64,115,.55), rgba(8,12,24,.92)),
+               linear-gradient(180deg,#101a30,#0a101f); z-index:50; }
+  .panel { background:rgba(13,20,38,.88); border:1px solid rgba(120,160,255,.18);
+    border-radius:16px; padding:28px 34px; width:min(440px, 92vw);
+    box-shadow:0 24px 80px rgba(0,0,0,.55); backdrop-filter:blur(6px); }
+  h1.title { font-size:44px; letter-spacing:2px; text-align:center; margin-bottom:2px; font-weight:800;
+    background:linear-gradient(90deg,#7de08a,#5ec4ff 55%,#b48cff); -webkit-background-clip:text;
+    background-clip:text; color:transparent; }
+  .subtitle { text-align:center; color:#93a5c9; font-size:13px; margin-bottom:20px; }
+  label.fld { display:block; font-size:12px; color:#93a5c9; margin:12px 0 4px; letter-spacing:.6px; }
+  input[type=text] { width:100%; padding:10px 12px; border-radius:10px; border:1px solid rgba(130,160,230,.25);
+    background:rgba(8,13,26,.8); color:#eaf1ff; font-size:15px; outline:none; }
+  input[type=text]:focus { border-color:#5ec4ff; }
+  .btn { display:block; width:100%; margin-top:12px; padding:12px 14px; border:none; border-radius:10px;
+    font-size:15px; font-weight:700; cursor:pointer; color:#0a1526; letter-spacing:.4px;
+    background:linear-gradient(90deg,#7de08a,#57c8f2); transition:transform .06s, filter .15s; }
+  .btn:hover { filter:brightness(1.1); } .btn:active { transform:scale(.98); }
+  .btn.alt { background:linear-gradient(90deg,#5ec4ff,#b48cff); }
+  .btn.ghost { background:rgba(90,120,190,.18); color:#dbe6ff; border:1px solid rgba(130,160,230,.3); }
+  .btn:disabled { filter:grayscale(.8) brightness(.7); cursor:not-allowed; }
+  .joinrow { display:flex; gap:10px; margin-top:12px; }
+  .joinrow input { flex:1; text-transform:uppercase; letter-spacing:3px; font-weight:700; }
+  .joinrow .btn { width:auto; margin-top:0; padding:12px 18px; }
+  #menuStatus { min-height:20px; margin-top:14px; text-align:center; font-size:13px; color:#8fe0a2; }
+  #menuStatus.err { color:#ff8d8d; }
+  .howto { margin-top:18px; font-size:12.5px; color:#93a5c9; line-height:1.75; border-top:1px solid rgba(120,160,255,.15); padding-top:12px; }
+  .howto b { color:#cfe0ff; }
+  kbd { background:rgba(130,160,230,.18); border:1px solid rgba(130,160,230,.3); border-radius:5px;
+    padding:1px 6px; font-size:11px; font-family:inherit; color:#dbe6ff; }
+
+  /* ---------- HUD ---------- */
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:20; }
+  #crosshair { position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px;
+    border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 6px rgba(0,0,0,.7); }
+  #hotbar { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); display:flex; gap:6px;
+    background:rgba(8,13,26,.55); padding:7px; border-radius:12px; border:1px solid rgba(130,160,230,.25); }
+  .slot { width:52px; height:52px; border-radius:9px; border:2px solid rgba(140,170,240,.25);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    background:rgba(20,30,55,.5); position:relative; }
+  .slot.sel { border-color:#7de08a; box-shadow:0 0 12px rgba(125,224,138,.5); background:rgba(34,52,84,.7); }
+  .slot .cube { width:24px; height:24px; border-radius:4px; box-shadow:inset -5px -6px 0 rgba(0,0,0,.28), inset 4px 4px 0 rgba(255,255,255,.22); }
+  .slot .num { position:absolute; top:2px; left:5px; font-size:9px; color:#9db1d8; }
+  .slot .nm { font-size:8.5px; color:#c3d2f0; }
+  #topright { position:absolute; top:12px; right:12px; text-align:right; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .chip { background:rgba(8,13,26,.6); border:1px solid rgba(130,160,230,.25); border-radius:9px;
+    padding:6px 12px; font-size:12.5px; color:#cfe0ff; pointer-events:auto; }
+  .chip b { color:#7de08a; letter-spacing:2px; }
+  #roomChip { cursor:pointer; }
+  #chatlog { position:absolute; left:12px; bottom:90px; width:min(420px, 60vw); display:flex;
+    flex-direction:column; gap:3px; font-size:13px; }
+  .cmsg { background:rgba(8,13,26,.55); border-radius:7px; padding:4px 9px; width:fit-content; max-width:100%;
+    word-wrap:break-word; animation:cfade 1s ease 9s forwards; }
+  .cmsg .who { font-weight:700; }
+  .cmsg.sys { color:#9fd6ad; font-style:italic; }
+  @keyframes cfade { to { opacity:0; } }
+  #chatinput { position:absolute; left:12px; bottom:56px; width:min(420px,60vw); pointer-events:auto;
+    padding:8px 12px; border-radius:9px; border:1px solid #5ec4ff; background:rgba(8,13,26,.85);
+    color:#eaf1ff; font-size:14px; outline:none; }
+  #debug { position:absolute; left:12px; bottom:10px; font-size:11px; color:rgba(200,215,245,.65);
+    text-shadow:0 1px 2px rgba(0,0,0,.8); }
+  #toast { position:absolute; top:14px; left:50%; transform:translateX(-50%); background:rgba(8,13,26,.8);
+    border:1px solid rgba(125,224,138,.5); color:#bdf0c6; padding:7px 16px; border-radius:9px; font-size:13px;
+    opacity:0; transition:opacity .25s; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="crosshair"></div>
+  <div id="hotbar"></div>
+  <div id="chatlog"></div>
+  <input id="chatinput" class="hidden" maxlength="120" placeholder="Press Enter to send, Esc to cancel">
+  <div id="topright">
+    <div class="chip" id="roomChip" title="Click to copy">Room <b id="roomCodeLbl">—</b></div>
+    <div class="chip">👥 <span id="playerCount">1</span> online</div>
+  </div>
+  <div id="debug"></div>
+  <div id="toast"></div>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1 class="title">VOXELVERSE</h1>
+    <div class="subtitle">third-person multiplayer voxel sandbox · one HTML file</div>
+    <label class="fld">YOUR NAME</label>
+    <input type="text" id="nameInput" maxlength="16" placeholder="Steve" autocomplete="off">
+    <button class="btn" id="btnHost">🌍 Host Online World</button>
+    <div class="joinrow">
+      <input type="text" id="codeInput" maxlength="5" placeholder="CODE" autocomplete="off">
+      <button class="btn alt" id="btnJoin">Join</button>
+    </div>
+    <button class="btn ghost" id="btnSolo">🎮 Singleplayer (offline)</button>
+    <div id="menuStatus"></div>
+    <div class="howto">
+      <b>Host</b> a world and share the 5-letter room code — friends open this same file and <b>Join</b>.
+      Multiplayer is peer-to-peer (WebRTC) and needs internet. Desktop keyboard + mouse required.<br>
+      <kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Space</kbd> jump/swim · <kbd>Shift</kbd> sprint ·
+      <kbd>LMB</kbd> break · <kbd>RMB</kbd> place · <kbd>1–9</kbd> blocks · <kbd>Scroll</kbd> zoom ·
+      <kbd>T</kbd> chat · <kbd>Esc</kbd> menu
+    </div>
+  </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h1 class="title" style="font-size:30px;">PAUSED</h1>
+    <div class="subtitle" id="pauseRoomLine"></div>
+    <button class="btn" id="btnResume">▶ Resume</button>
+    <button class="btn ghost" id="btnCopyCode">📋 Copy room code</button>
+    <button class="btn ghost" id="btnLeave">🚪 Leave game</button>
+    <div class="howto">
+      <kbd>WASD</kbd> move · <kbd>Space</kbd> jump/swim · <kbd>Shift</kbd> sprint · <kbd>LMB</kbd> break ·
+      <kbd>RMB</kbd> place · <kbd>1–9</kbd> select block · <kbd>Scroll</kbd> camera zoom · <kbd>T</kbd> chat
+    </div>
+  </div>
+</div>
+
+<div id="fatal" class="overlay hidden">
+  <div class="panel">
+    <h1 class="title" style="font-size:26px;">Connection lost</h1>
+    <div class="subtitle" id="fatalMsg">The host has disconnected.</div>
+    <button class="btn" onclick="location.reload()">Back to menu</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script>if(!window.THREE)document.write('<script src="https://unpkg.com/three@0.158.0/build/three.min.js"><\/script>');</script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>if(!window.Peer)document.write('<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"><\/script>');</script>
+
+<script>
+'use strict';
+/* ============================================================================
+   VOXELVERSE — a third-person multiplayer voxel sandbox in one HTML file.
+   Rendering: Three.js (vertex-colored chunk meshes, baked AO + face shading)
+   Networking: PeerJS (WebRTC data channels, host-relay star topology)
+   ============================================================================ */
+
+/* ----------------------------- world constants ---------------------------- */
+const W = 160, H = 64, D = 160;        // world size in blocks
+const CH = 16;                          // chunk footprint (x,z)
+const CX = W / CH, CZ = D / CH;
+const SEA = 22;                         // water level
+const GRAV = 24, JUMP_V = 8.6, WALK = 4.4, SPRINT_MUL = 1.55;
+const P_R = 0.3, P_H = 1.8, EYE = 1.62; // player AABB + eye height
+const REACH = 6;
+
+const B = { AIR:0, GRASS:1, DIRT:2, STONE:3, SAND:4, LOG:5, LEAF:6, PLANK:7,
+            BRICK:8, GLASS:9, WATER:10, SNOW:11, BEDROCK:12 };
+
+// bucket: 0 = opaque geometry, 1 = water, 2 = glass
+const BLOCKS = [
+  { name:'Air',    solid:false, opaque:false },
+  { name:'Grass',  solid:true, opaque:true, top:0x5fbc42, side:0x82a14e, bottom:0x8a6042 },
+  { name:'Dirt',   solid:true, opaque:true, top:0x8a6042, side:0x8a6042, bottom:0x7a5439 },
+  { name:'Stone',  solid:true, opaque:true, top:0x93949b, side:0x8b8c93, bottom:0x84858c },
+  { name:'Sand',   solid:true, opaque:true, top:0xe9dda2, side:0xe1d493, bottom:0xd8ca88 },
+  { name:'Wood',   solid:true, opaque:true, top:0x9d7f4e, side:0x6b5232, bottom:0x9d7f4e },
+  { name:'Leaves', solid:true, opaque:true, top:0x4dae43, side:0x3f9c39, bottom:0x358531 },
+  { name:'Planks', solid:true, opaque:true, top:0xc39d61, side:0xb8925a, bottom:0xac8751 },
+  { name:'Brick',  solid:true, opaque:true, top:0xb5573f, side:0xac4f39, bottom:0xa04a35 },
+  { name:'Glass',  solid:true, opaque:false, bucket:2, top:0xd8eef8, side:0xd8eef8, bottom:0xd8eef8 },
+  { name:'Water',  solid:false, opaque:false, bucket:1, top:0x3f7fd8, side:0x3a76cc, bottom:0x3a76cc },
+  { name:'Snow',   solid:true, opaque:true, top:0xf5f9fc, side:0xe6edf4, bottom:0x8a6042 },
+  { name:'Bedrock',solid:true, opaque:true, unbreakable:true, top:0x3b3b42, side:0x36363d, bottom:0x33333a },
+];
+for (const bd of BLOCKS) {
+  if (bd.top === undefined) continue;
+  bd.rgb = {};
+  for (const k of ['top','side','bottom']) {
+    const c = bd[k];
+    bd.rgb[k] = [ (c>>16 & 255)/255, (c>>8 & 255)/255, (c & 255)/255 ];
+  }
+}
+const HOTBAR = [B.GRASS, B.DIRT, B.STONE, B.SAND, B.LOG, B.LEAF, B.PLANK, B.BRICK, B.GLASS];
+
+/* --------------------------------- state ---------------------------------- */
+let world = null;                 // Uint8Array(W*H*D)
+let heightMap = null;             // Uint8Array(W*D) — generation-time surface height
+let SEEDI = 1;
+let state = 'menu';               // menu | playing
+let paused = false, chatOpen = false;
+
+const me = { x:0, y:0, z:0, vx:0, vy:0, vz:0, onGround:false, inWater:false,
+             name:'Player', color:'#7de08a', model:null };
+let camYaw = 0, camPitch = -0.35, camDist = 5.5;
+let hotbarSel = 0;
+const remotes = new Map();        // peerId -> remote player record
+let spawnPos = { x: W/2 + .5, y: 40, z: D/2 + .5 };
+
+const $ = id => document.getElementById(id);
+
+/* ------------------------- seeded hashing & noise -------------------------- */
+function ihash(x, z) {
+  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(z, 0x165667b1) ^ Math.imul(SEEDI, 0x9e3779b9);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function vnoise(x, z) {
+  const xi = Math.floor(x), zi = Math.floor(z);
+  const xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
+  const a = ihash(xi, zi), b = ihash(xi + 1, zi), c = ihash(xi, zi + 1), d = ihash(xi + 1, zi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x, z, oct) {
+  let s = 0, amp = 1, tot = 0, f = 1;
+  for (let i = 0; i < oct; i++) { s += vnoise(x * f, z * f) * amp; tot += amp; amp *= .5; f *= 2; }
+  return s / tot;
+}
+
+/* ------------------------------ world access ------------------------------- */
+const idx = (x, y, z) => (y * D + z) * W + x;
+function getBlock(x, y, z) {
+  if (x < 0 || x >= W || z < 0 || z >= D || y >= H) return B.AIR;
+  if (y < 0) return B.BEDROCK;
+  return world[idx(x, y, z)];
+}
+// collision: world borders are invisible walls
+function solidAt(x, y, z) {
+  if (y < 0) return true;
+  if (x < 0 || x >= W || z < 0 || z >= D) return true;
+  if (y >= H) return false;
+  return BLOCKS[world[idx(x, y, z)]].solid;
+}
+function opaqueAt(x, y, z) {
+  if (y < 0) return true;
+  if (x < 0 || x >= W || z < 0 || z >= D || y >= H) return false;
+  return BLOCKS[world[idx(x, y, z)]].opaque;
+}
+
+/* ----------------------------- world generation ---------------------------- */
+function genWorld(seed) {
+  SEEDI = seed | 0;
+  world = new Uint8Array(W * H * D);
+  heightMap = new Uint8Array(W * D);
+
+  for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+    const base = fbm(x * 0.016 + 100, z * 0.016 + 100, 4);
+    const mtn  = fbm(x * 0.007 + 511.3, z * 0.007 + 77.7, 3);
+    let h = Math.floor(15 + base * 18 + Math.pow(mtn, 2.6) * 34);
+    h = Math.max(3, Math.min(H - 9, h));
+    heightMap[z * W + x] = h;
+
+    world[idx(x, 0, z)] = B.BEDROCK;
+    for (let y = 1; y <= h; y++) {
+      let b;
+      if (y < h - 3) b = B.STONE;
+      else if (y < h) b = (h <= SEA + 1) ? B.SAND : B.DIRT;
+      else { // surface block
+        if (h <= SEA + 1) b = B.SAND;
+        else if (h >= 46) b = B.SNOW;
+        else if (h >= 40) b = B.STONE;
+        else b = B.GRASS;
+      }
+      world[idx(x, y, z)] = b;
+    }
+    for (let y = h + 1; y <= SEA; y++) world[idx(x, y, z)] = B.WATER;
+  }
+
+  // trees — deterministic per seed so every peer generates the same forest
+  for (let gz = 0; gz < D / 6; gz++) for (let gx = 0; gx < W / 6; gx++) {
+    const r = ihash(gx * 3 + 9241, gz * 3 + 1783);
+    if (r > 0.42) continue;
+    const tx = gx * 6 + 1 + Math.floor(ihash(gx + 55, gz + 812) * 4);
+    const tz = gz * 6 + 1 + Math.floor(ihash(gx + 991, gz + 23) * 4);
+    if (tx < 2 || tx >= W - 2 || tz < 2 || tz >= D - 2) continue;
+    const h = heightMap[tz * W + tx];
+    if (world[idx(tx, h, tz)] !== B.GRASS || h + 7 >= H) continue;
+    const th = 4 + Math.floor(r * 5);   // trunk 4-5
+    for (let y = 1; y <= th; y++) world[idx(tx, h + y, tz)] = B.LOG;
+    for (let ly = th - 2; ly <= th + 1; ly++) {
+      const rad = ly >= th ? 1 : 2;
+      for (let dx = -rad; dx <= rad; dx++) for (let dz = -rad; dz <= rad; dz++) {
+        if (dx === 0 && dz === 0 && ly <= th) continue;
+        if (Math.abs(dx) === rad && Math.abs(dz) === rad && ihash(tx * 17 + dx, tz * 31 + dz + ly) < .6) continue;
+        const px = tx + dx, py = h + ly, pz = tz + dz;
+        if (world[idx(px, py, pz)] === B.AIR) world[idx(px, py, pz)] = B.LEAF;
+      }
+    }
+    world[idx(tx, h + th + 2, tz)] = B.LEAF;
+  }
+
+  // spawn: walk a spiral from the center looking for dry land
+  spawnPos = null;
+  outer:
+  for (let rad = 0; rad < 60; rad += 2) {
+    for (let a = 0; a < 16; a++) {
+      const x = Math.floor(W / 2 + Math.cos(a / 16 * 6.283) * rad);
+      const z = Math.floor(D / 2 + Math.sin(a / 16 * 6.283) * rad);
+      if (x < 4 || x >= W - 4 || z < 4 || z >= D - 4) continue;
+      const h = heightMap[z * W + x];
+      if (h > SEA + 1 && world[idx(x, h, z)] === B.GRASS) {
+        spawnPos = { x: x + .5, y: h + 1, z: z + .5 }; break outer;
+      }
+    }
+  }
+  if (!spawnPos) spawnPos = { x: W / 2 + .5, y: findTop(W >> 1, D >> 1) + 1, z: D / 2 + .5 };
+}
+function findTop(x, z) {
+  for (let y = H - 1; y >= 0; y--) if (BLOCKS[getBlock(x, y, z)].solid) return y + 1;
+  return SEA + 2;
+}
+
+/* ------------------------------ three.js setup ----------------------------- */
+const SKY = 0x8fc9ee;
+let renderer, scene, camera, highlight, cloudGroup;
+function initThree() {
+  const canvas = $('game');
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(SKY);
+  scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(SKY, 70, 170);
+  camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 500);
+
+  // lights only affect the (Lambert) player characters — terrain shading is baked
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x88a06a, 1.25));
+  const dl = new THREE.DirectionalLight(0xfff3d6, 1.0);
+  dl.position.set(60, 100, 30);
+  scene.add(dl);
+
+  // targeted-block outline
+  const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002));
+  highlight = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x0b0f18, transparent: true, opacity: .75 }));
+  highlight.visible = false;
+  scene.add(highlight);
+
+  // drifting clouds
+  cloudGroup = new THREE.Group();
+  const cmat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .55, fog: false });
+  for (let i = 0; i < 22; i++) {
+    const w = 8 + Math.random() * 16, d2 = 6 + Math.random() * 12;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, d2), cmat);
+    m.position.set(Math.random() * (W + 80) - 40, 56 + Math.random() * 8, Math.random() * D);
+    cloudGroup.add(m);
+  }
+  scene.add(cloudGroup);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+/* ------------------------------ chunk meshing ------------------------------ */
+// faces: d = outward normal, c = 4 corner offsets in CCW order (seen from outside)
+const FACES = [
+  { d:[ 1, 0, 0], c:[[1,0,0],[1,1,0],[1,1,1],[1,0,1]], s:0.74 },
+  { d:[-1, 0, 0], c:[[0,0,1],[0,1,1],[0,1,0],[0,0,0]], s:0.74 },
+  { d:[ 0, 1, 0], c:[[0,1,0],[0,1,1],[1,1,1],[1,1,0]], s:1.00 },
+  { d:[ 0,-1, 0], c:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]], s:0.52 },
+  { d:[ 0, 0, 1], c:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]], s:0.86 },
+  { d:[ 0, 0,-1], c:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]], s:0.86 },
+];
+const AO_LVL = [0.5, 0.7, 0.85, 1.0];
+let chunkMeshes = [];   // per chunk: {opaque, water, glass} THREE.Mesh
+let chunkMats = null;
+
+function vertexAO(x, y, z, cx, cy, cz, axis) {
+  // occlusion of a face vertex by the three cells that touch its corner
+  const da = [0,0,0], db = [0,0,0];
+  if (axis === 0) { da[1] = cy ? 1 : -1; db[2] = cz ? 1 : -1; }
+  else if (axis === 1) { da[0] = cx ? 1 : -1; db[2] = cz ? 1 : -1; }
+  else { da[0] = cx ? 1 : -1; db[1] = cy ? 1 : -1; }
+  const s1 = opaqueAt(x + da[0], y + da[1], z + da[2]) ? 1 : 0;
+  const s2 = opaqueAt(x + db[0], y + db[1], z + db[2]) ? 1 : 0;
+  if (s1 && s2) return 0;
+  const cc = opaqueAt(x + da[0] + db[0], y + da[1] + db[1], z + da[2] + db[2]) ? 1 : 0;
+  return 3 - (s1 + s2 + cc);
+}
+
+function buildChunkGeometry(ccx, ccz) {
+  const out = [ { p:[], c:[], i:[] }, { p:[], c:[], i:[] }, { p:[], c:[], i:[] } ];
+  const x0 = ccx * CH, z0 = ccz * CH;
+  for (let y = 0; y < H; y++) for (let z = z0; z < z0 + CH; z++) for (let x = x0; x < x0 + CH; x++) {
+    const b = world[idx(x, y, z)];
+    if (b === B.AIR) continue;
+    const bd = BLOCKS[b];
+    const bucket = bd.bucket || 0;
+    const g = out[bucket];
+    // water surface sits slightly below the block top
+    const topOff = (b === B.WATER && getBlock(x, y + 1, z) !== B.WATER) ? 0.125 : 0;
+
+    for (let f = 0; f < 6; f++) {
+      const fc = FACES[f];
+      const nx = x + fc.d[0], ny = y + fc.d[1], nz = z + fc.d[2];
+      const nb = getBlock(nx, ny, nz);
+      if (ny < 0) continue;                                   // world floor
+      if (!(nb === B.AIR || (!BLOCKS[nb].opaque && nb !== b))) continue;
+
+      const axis = fc.d[0] !== 0 ? 0 : (fc.d[1] !== 0 ? 1 : 2);
+      const faceKind = f === 2 ? 'top' : (f === 3 ? 'bottom' : 'side');
+      const col = bd.rgb[faceKind];
+      const base = g.p.length / 3;
+      const ao = [1, 1, 1, 1];
+      for (let k = 0; k < 4; k++) {
+        const c = fc.c[k];
+        let vy = y + c[1] - (c[1] === 1 ? topOff : 0);
+        g.p.push(x + c[0], vy, z + c[2]);
+        let aoV = 3;
+        if (bucket === 0) aoV = vertexAO(nx, ny, nz, c[0], c[1], c[2], axis);
+        ao[k] = aoV;
+        const sh = fc.s * AO_LVL[aoV];
+        g.c.push(col[0] * sh, col[1] * sh, col[2] * sh);
+      }
+      if (ao[0] + ao[2] >= ao[1] + ao[3]) g.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      else g.i.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+    }
+  }
+  return out;
+}
+
+function rebuildChunk(ccx, ccz) {
+  if (ccx < 0 || ccx >= CX || ccz < 0 || ccz >= CZ) return;
+  const data = buildChunkGeometry(ccx, ccz);
+  const rec = chunkMeshes[ccz * CX + ccx];
+  const parts = ['opaque', 'water', 'glass'];
+  for (let bkt = 0; bkt < 3; bkt++) {
+    const mesh = rec[parts[bkt]];
+    const d = data[bkt];
+    mesh.geometry.dispose();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(d.p, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(d.c, 3));
+    geo.setIndex(d.i);
+    geo.computeBoundingSphere();
+    mesh.geometry = geo;
+    mesh.visible = d.i.length > 0;
+  }
+}
+
+function buildAllChunks() {
+  if (!chunkMats) chunkMats = {
+    opaque: new THREE.MeshBasicMaterial({ vertexColors: true }),
+    water:  new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: .62, depthWrite: false }),
+    glass:  new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: .45, depthWrite: false }),
+  };
+  for (const rec of chunkMeshes) for (const k of ['opaque','water','glass']) {
+    scene.remove(rec[k]); rec[k].geometry.dispose();
+  }
+  chunkMeshes = [];
+  for (let cz = 0; cz < CZ; cz++) for (let cx = 0; cx < CX; cx++) {
+    const rec = {};
+    for (const k of ['opaque','water','glass']) {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), chunkMats[k]);
+      m.frustumCulled = true;
+      m.renderOrder = k === 'opaque' ? 0 : (k === 'water' ? 1 : 2);
+      scene.add(m);
+      rec[k] = m;
+    }
+    chunkMeshes.push(rec);
+  }
+  for (let cz = 0; cz < CZ; cz++) for (let cx = 0; cx < CX; cx++) rebuildChunk(cx, cz);
+}
+
+// set a block and remesh the chunk (and neighbors when on a border)
+function setBlock(x, y, z, b) {
+  if (x < 0 || x >= W || y < 1 || y >= H || z < 0 || z >= D) return;
+  world[idx(x, y, z)] = b;
+  const ccx = Math.floor(x / CH), ccz = Math.floor(z / CH);
+  rebuildChunk(ccx, ccz);
+  const lx = x - ccx * CH, lz = z - ccz * CH;
+  if (lx === 0) rebuildChunk(ccx - 1, ccz);
+  if (lx === CH - 1) rebuildChunk(ccx + 1, ccz);
+  if (lz === 0) rebuildChunk(ccx, ccz - 1);
+  if (lz === CH - 1) rebuildChunk(ccx, ccz + 1);
+}
+
+/* ------------------------------ voxel raycast ------------------------------ */
+function raycast(ox, oy, oz, dx, dy, dz, maxD, pred) {
+  let x = Math.floor(ox), y = Math.floor(oy), z = Math.floor(oz);
+  const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+  const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+  const stepZ = dz > 0 ? 1 : dz < 0 ? -1 : 0;
+  const tdx = stepX !== 0 ? Math.abs(1 / dx) : Infinity;
+  const tdy = stepY !== 0 ? Math.abs(1 / dy) : Infinity;
+  const tdz = stepZ !== 0 ? Math.abs(1 / dz) : Infinity;
+  let tmx = stepX > 0 ? (x + 1 - ox) * tdx : stepX < 0 ? (ox - x) * tdx : Infinity;
+  let tmy = stepY > 0 ? (y + 1 - oy) * tdy : stepY < 0 ? (oy - y) * tdy : Infinity;
+  let tmz = stepZ > 0 ? (z + 1 - oz) * tdz : stepZ < 0 ? (oz - z) * tdz : Infinity;
+  let nx = 0, ny = 0, nz = 0, t = 0;
+  for (let i = 0; i < 256; i++) {
+    if (pred(x, y, z)) return { x, y, z, nx, ny, nz, t };
+    if (tmx <= tmy && tmx <= tmz) { if (tmx > maxD) return null; x += stepX; t = tmx; tmx += tdx; nx = -stepX; ny = 0; nz = 0; }
+    else if (tmy <= tmz)          { if (tmy > maxD) return null; y += stepY; t = tmy; tmy += tdy; nx = 0; ny = -stepY; nz = 0; }
+    else                          { if (tmz > maxD) return null; z += stepZ; t = tmz; tmz += tdz; nx = 0; ny = 0; nz = -stepZ; }
+  }
+  return null;
+}
+const targetable = (x, y, z) => { const b = getBlock(x, y, z); return b !== B.AIR && b !== B.WATER; };
+const cameraBlocking = (x, y, z) => solidAt(x, y, z) && (x >= 0 && x < W && z >= 0 && z < D);
+
+/* --------------------------- physics & collision --------------------------- */
+function overlapsSolid(px, py, pz) {
+  const x0 = Math.floor(px - P_R), x1 = Math.floor(px + P_R);
+  const y0 = Math.floor(py), y1 = Math.floor(py + P_H);
+  const z0 = Math.floor(pz - P_R), z1 = Math.floor(pz + P_R);
+  for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++)
+    if (solidAt(x, y, z)) return { x, y, z };
+  return null;
+}
+function moveAxis(p, axis, amt) {
+  if (amt === 0) return false;
+  p[axis] += amt;
+  const hit = overlapsSolid(p.x, p.y, p.z);
+  if (!hit) return false;
+  const eps = 0.001;
+  if (axis === 'x') p.x = amt > 0 ? hit.x - P_R - eps : hit.x + 1 + P_R + eps;
+  else if (axis === 'z') p.z = amt > 0 ? hit.z - P_R - eps : hit.z + 1 + P_R + eps;
+  else p.y = amt > 0 ? hit.y - P_H - eps : hit.y + 1;
+  return true;
+}
+
+const keys = new Set();
+function updatePlayer(dt) {
+  const feetB = getBlock(Math.floor(me.x), Math.floor(me.y + 0.4), Math.floor(me.z));
+  const eyeB  = getBlock(Math.floor(me.x), Math.floor(me.y + EYE), Math.floor(me.z));
+  me.inWater = feetB === B.WATER || eyeB === B.WATER;
+
+  // wish direction in camera space
+  let ix = 0, iz = 0;
+  if (!chatOpen && !paused) {
+    if (keys.has('KeyW')) iz += 1;
+    if (keys.has('KeyS')) iz -= 1;
+    if (keys.has('KeyA')) ix -= 1;
+    if (keys.has('KeyD')) ix += 1;
+  }
+  const len = Math.hypot(ix, iz);
+  if (len > 0) { ix /= len; iz /= len; }
+  const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  let speed = WALK * (sprint ? SPRINT_MUL : 1) * (me.inWater ? 0.55 : 1);
+  const sy = Math.sin(camYaw), cy = Math.cos(camYaw);
+  const wx = (sy * iz + cy * ix) * speed;
+  const wz = (cy * iz - sy * ix) * speed;
+  const ctl = (me.onGround || me.inWater) ? 12 : 3.2;      // air control is weaker
+  me.vx += (wx - me.vx) * Math.min(1, ctl * dt);
+  me.vz += (wz - me.vz) * Math.min(1, ctl * dt);
+
+  if (me.inWater) {
+    const swimUp = !chatOpen && !paused && keys.has('Space');
+    me.vy += (swimUp ? 14 : -7) * dt;
+    me.vy = Math.max(-4.5, Math.min(4.5, me.vy));
+    // near the surface, Space gives a proper hop so you can climb onto shore
+    if (swimUp && eyeB !== B.WATER) me.vy = Math.max(me.vy, 6.8);
+  } else {
+    me.vy -= GRAV * dt;
+    me.vy = Math.max(-48, me.vy);
+    if (!chatOpen && !paused && keys.has('Space') && me.onGround) { me.vy = JUMP_V; me.onGround = false; }
+  }
+
+  // substep so fast falls never tunnel through blocks
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(me.vx), Math.abs(me.vy), Math.abs(me.vz)) * dt / 0.4));
+  const sdt = dt / steps;
+  me.onGround = false;
+  for (let s = 0; s < steps; s++) {
+    if (moveAxis(me, 'x', me.vx * sdt)) me.vx = 0;
+    if (moveAxis(me, 'z', me.vz * sdt)) me.vz = 0;
+    if (moveAxis(me, 'y', me.vy * sdt)) { if (me.vy < 0) me.onGround = true; me.vy = 0; }
+  }
+
+  if (me.y < -16) { // fell out of the world
+    me.x = spawnPos.x; me.y = spawnPos.y + 1; me.z = spawnPos.z;
+    me.vx = me.vy = me.vz = 0;
+  }
+
+  // own third-person model follows
+  if (me.model) {
+    me.model.group.position.set(me.x, me.y, me.z);
+    me.model.group.rotation.y = camYaw;
+    const hSpeed = Math.hypot(me.vx, me.vz);
+    animateCharacter(me.model, hSpeed, dt);
+    me.model.head.rotation.x = -camPitch * 0.45;
+  }
+}
+
+/* ----------------------------- camera & target ----------------------------- */
+function updateCamera() {
+  const ex = me.x, ey = me.y + EYE, ez = me.z;
+  const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+  const fx = Math.sin(camYaw) * cp, fy = sp, fz = Math.cos(camYaw) * cp;
+  // pull the camera in if terrain blocks the view line
+  let dist = camDist;
+  const hit = raycast(ex, ey, ez, -fx, -fy, -fz, camDist, cameraBlocking);
+  if (hit) dist = Math.max(1.2, hit.t - 0.35);
+  camera.position.set(ex - fx * dist, Math.max(0.4, ey - fy * dist), ez - fz * dist);
+  camera.lookAt(ex, ey, ez);
+  return { ex, ey, ez, fx, fy, fz };
+}
+let target = null;
+function updateTarget(ray) {
+  target = raycast(ray.ex, ray.ey, ray.ez, ray.fx, ray.fy, ray.fz, REACH, targetable);
+  if (target) {
+    highlight.visible = true;
+    highlight.position.set(target.x + .5, target.y + .5, target.z + .5);
+  } else highlight.visible = false;
+}
+
+/* ------------------------- block breaking / placing ------------------------ */
+function blockIntersectsPlayer(bx, by, bz, p) {
+  return bx < p.x + P_R && bx + 1 > p.x - P_R &&
+         by < p.y + P_H && by + 1 > p.y &&
+         bz < p.z + P_R && bz + 1 > p.z - P_R;
+}
+function tryBreak() {
+  if (!target) return;
+  const b = getBlock(target.x, target.y, target.z);
+  if (b === B.AIR || BLOCKS[b].unbreakable) return;
+  setBlock(target.x, target.y, target.z, B.AIR);
+  netSendEdit(target.x, target.y, target.z, B.AIR);
+  sfx('break');
+}
+function tryPlace() {
+  if (!target) return;
+  const px = target.x + target.nx, py = target.y + target.ny, pz = target.z + target.nz;
+  if (px < 0 || px >= W || py < 1 || py >= H || pz < 0 || pz >= D) return;
+  const cur = getBlock(px, py, pz);
+  if (cur !== B.AIR && cur !== B.WATER) return;
+  if (blockIntersectsPlayer(px, py, pz, me)) return;
+  for (const r of remotes.values()) if (blockIntersectsPlayer(px, py, pz, r)) return;
+  const b = HOTBAR[hotbarSel];
+  setBlock(px, py, pz, b);
+  netSendEdit(px, py, pz, b);
+  sfx('place');
+}
+
+/* ---------------------------- player characters ---------------------------- */
+function makeCharacter(colorHex, name, showTag) {
+  const group = new THREE.Group();
+  const mat = c => new THREE.MeshLambertMaterial({ color: c });
+  const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  const shirt = mat(colorHex), pants = mat(0x3d4a5f), skin = mat(0xe8b98f), shoe = mat(0x2b3140);
+
+  const body = box(0.5, 0.72, 0.28, shirt); body.position.y = 1.11; group.add(body);
+  const head = box(0.46, 0.44, 0.46, skin); head.position.y = 1.72;
+  const eyeM = mat(0x24262e);
+  for (const s of [-1, 1]) {
+    const e = box(0.08, 0.09, 0.03, eyeM); e.position.set(0.11 * s, 0.04, 0.235); head.add(e);
+  }
+  const hair = box(0.48, 0.12, 0.48, mat(0x4a3524)); hair.position.y = 0.26; head.add(hair);
+  group.add(head);
+
+  const armL = new THREE.Group(), armR = new THREE.Group();
+  for (const [g2, s] of [[armL, -1], [armR, 1]]) {
+    g2.position.set(0.335 * s, 1.42, 0);
+    const a = box(0.17, 0.66, 0.22, shirt); a.position.y = -0.26;
+    const hand = box(0.17, 0.14, 0.22, skin); hand.position.y = -0.62;
+    g2.add(a); g2.add(hand); group.add(g2);
+  }
+  const legL = new THREE.Group(), legR = new THREE.Group();
+  for (const [g2, s] of [[legL, -1], [legR, 1]]) {
+    g2.position.set(0.13 * s, 0.75, 0);
+    const l = box(0.21, 0.62, 0.24, pants); l.position.y = -0.31;
+    const f = box(0.21, 0.14, 0.26, shoe); f.position.set(0, -0.68, 0.01);
+    g2.add(l); g2.add(f); group.add(g2);
+  }
+
+  let tag = null;
+  if (showTag) {
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 56;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = 'rgba(8,13,26,0.55)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(0, 0, 256, 56, 14); else ctx.rect(0, 0, 256, 56);
+    ctx.fill();
+    ctx.font = 'bold 30px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(name.slice(0, 16), 128, 30);
+    const tex = new THREE.CanvasTexture(cv);
+    tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    tag.scale.set(1.7, 0.37, 1);
+    tag.position.y = 2.3;
+    group.add(tag);
+  }
+  scene.add(group);
+  return { group, head, armL, armR, legL, legR, phase: Math.random() * 6 };
+}
+function animateCharacter(model, speed, dt) {
+  model.phase += dt * (4 + speed * 2.4);
+  const amp = Math.min(1, speed / 3.5) * 0.72;
+  const s = Math.sin(model.phase) * amp;
+  model.legL.rotation.x = s;    model.legR.rotation.x = -s;
+  model.armL.rotation.x = -s * 0.85; model.armR.rotation.x = s * 0.85;
+}
+function removeCharacter(model) {
+  scene.remove(model.group);
+  model.group.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+  });
+}
+
+/* ------------------------------ remote players ----------------------------- */
+const PLAYER_COLORS = [0xe36a6a, 0x5ec4ff, 0xf2b64f, 0xb48cff, 0x6fe0a8, 0xf08fd0, 0x8fd0f0, 0xf0e08f];
+function addRemote(id, name, color, x, y, z) {
+  if (remotes.has(id) || id === myPeerId()) return remotes.get(id);
+  const r = { id, name: String(name || 'Player').slice(0, 16), color,
+    x, y, z, tx: x, ty: y, tz: z, yaw: 0, tyaw: 0, pitch: 0,
+    speed: 0, lastMsgT: performance.now(),
+    model: makeCharacter(color, String(name || 'Player').slice(0, 16), true) };
+  r.model.group.position.set(x, y, z);
+  remotes.set(id, r);
+  updatePlayerCount();
+  return r;
+}
+function removeRemote(id) {
+  const r = remotes.get(id);
+  if (!r) return;
+  removeCharacter(r.model);
+  remotes.delete(id);
+  updatePlayerCount();
+}
+function onRemoteState(id, m) {
+  let r = remotes.get(id);
+  if (!r) r = addRemote(id, m.n || 'Player', PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)], m.x, m.y, m.z);
+  if (!r) return;
+  const now = performance.now();
+  const dtm = Math.max(0.02, (now - r.lastMsgT) / 1000);
+  r.speed = r.speed * 0.5 + (Math.hypot(m.x - r.tx, m.z - r.tz) / dtm) * 0.5;
+  r.lastMsgT = now;
+  r.tx = m.x; r.ty = m.y; r.tz = m.z; r.tyaw = m.w; r.pitch = m.p || 0;
+}
+function updateRemotes(dt) {
+  const k = 1 - Math.exp(-14 * dt);
+  for (const r of remotes.values()) {
+    r.x += (r.tx - r.x) * k; r.y += (r.ty - r.y) * k; r.z += (r.tz - r.z) * k;
+    let dy2 = r.tyaw - r.yaw;
+    while (dy2 > Math.PI) dy2 -= Math.PI * 2;
+    while (dy2 < -Math.PI) dy2 += Math.PI * 2;
+    r.yaw += dy2 * k;
+    r.model.group.position.set(r.x, r.y, r.z);
+    r.model.group.rotation.y = r.yaw;
+    r.model.head.rotation.x = -(r.pitch || 0) * 0.45;
+    animateCharacter(r.model, r.speed, dt);
+    if (performance.now() - r.lastMsgT > 300) r.speed *= 0.9; // settle when updates stop
+  }
+}
+
+/* -------------------------------- networking ------------------------------- */
+/* Star topology: the host owns the world seed + edit log and relays guest
+   state to everyone. Guests talk only to the host. */
+const CODE_PREFIX = 'vxvrs-';
+let peer = null, isHost = false, hostConn = null, roomCode = null;
+const conns = new Map();          // host only: peerId -> DataConnection
+const editLog = new Map();        // host only: "x,y,z" -> block (for late joiners)
+let netReady = false;
+
+function myPeerId() { return peer ? peer.id : null; }
+function randCode() {
+  const cs = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 5; i++) s += cs[Math.floor(Math.random() * cs.length)];
+  return s;
+}
+function newPeer(id) {
+  const opts = {
+    debug: 1,
+    config: { iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ]},
+  };
+  if (window.VXV_PEER_OPTS) Object.assign(opts, window.VXV_PEER_OPTS); // test override for a self-hosted PeerServer
+  return new Peer(id, opts);
+}
+function menuStatus(msg, isErr) {
+  const el = $('menuStatus');
+  el.textContent = msg;
+  el.className = isErr ? 'err' : '';
+}
+
+function hostGame(attempt) {
+  if (!window.Peer) { menuStatus('PeerJS failed to load — check your internet, or play Singleplayer.', true); return; }
+  attempt = attempt || 0;
+  roomCode = randCode();
+  menuStatus('Creating room ' + roomCode + '…');
+  peer = newPeer(CODE_PREFIX + roomCode.toLowerCase());
+  peer.on('open', () => {
+    isHost = true; netReady = true;
+    startGame(Math.floor(Math.random() * 2 ** 31), roomCode);
+  });
+  peer.on('connection', c => setupHostConn(c));
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id' && attempt < 3) { peer.destroy(); hostGame(attempt + 1); return; }
+    if (state === 'menu') menuStatus('Network error: ' + e.type + '. Try again or play Singleplayer.', true);
+  });
+  peer.on('disconnected', () => { try { peer.reconnect(); } catch (_) {} });
+}
+
+function setupHostConn(c) {
+  c.on('data', m => {
+    if (!m || typeof m !== 'object') return;
+    switch (m.t) {
+      case 'hello': {
+        const name = String(m.n || 'Player').slice(0, 16);
+        const color = PLAYER_COLORS[Math.abs(hashStr(c.peer)) % PLAYER_COLORS.length];
+        // spawn guests near the shared spawn
+        const gx = spawnPos.x + (Math.random() * 6 - 3), gz = spawnPos.z + (Math.random() * 6 - 3);
+        const gy = findTop(Math.floor(gx), Math.floor(gz));
+        conns.set(c.peer, c);
+        addRemote(c.peer, name, color, gx, gy, gz);
+        const players = {};
+        players[myPeerId()] = { n: me.name, c: colorNum(me.color), x: me.x, y: me.y, z: me.z };
+        for (const [rid, r] of remotes) if (rid !== c.peer) players[rid] = { n: r.name, c: r.color, x: r.x, y: r.y, z: r.z };
+        c.send({ t: 'init', seed: SEEDI, code: roomCode, spawn: [gx, gy, gz], color,
+                 edits: [...editLog.entries()].map(([k, v]) => k.split(',').map(Number).concat(v)),
+                 players });
+        bcast({ t: 'join', id: c.peer, n: name, c: color, x: gx, y: gy, z: gz }, c.peer);
+        sysChat(name + ' joined the world');
+        break;
+      }
+      case 's': onRemoteState(c.peer, m); bcast({ ...m, id: c.peer }, c.peer); break;
+      case 'e': applyRemoteEdit(m); bcast({ ...m }, c.peer); break;
+      case 'c': {
+        const r = remotes.get(c.peer);
+        addChat(r ? r.name : 'Player', colorHexStr(r ? r.color : 0xffffff), String(m.m).slice(0, 120));
+        bcast({ t: 'c', id: c.peer, n: r ? r.name : 'Player', col: r ? r.color : 0xffffff, m: String(m.m).slice(0, 120) }, c.peer);
+        break;
+      }
+    }
+  });
+  c.on('close', () => {
+    if (!conns.has(c.peer)) return;
+    conns.delete(c.peer);
+    const r = remotes.get(c.peer);
+    if (r) sysChat(r.name + ' left the world');
+    removeRemote(c.peer);
+    bcast({ t: 'leave', id: c.peer });
+  });
+  c.on('error', () => {});
+}
+
+function joinGame(code) {
+  if (!window.Peer) { menuStatus('PeerJS failed to load — check your internet, or play Singleplayer.', true); return; }
+  code = code.trim().toUpperCase();
+  if (code.length !== 5) { menuStatus('Room codes are 5 letters/numbers.', true); return; }
+  menuStatus('Connecting to ' + code + '…');
+  roomCode = code;
+  peer = newPeer(undefined);
+  const joinTimeout = setTimeout(() => {
+    if (state === 'menu') menuStatus('Could not reach room ' + code + '. Is the host still online?', true);
+  }, 14000);
+  peer.on('open', () => {
+    hostConn = peer.connect(CODE_PREFIX + code.toLowerCase(), { reliable: true });
+    hostConn.on('open', () => hostConn.send({ t: 'hello', n: me.name }));
+    hostConn.on('data', m => {
+      if (!m || typeof m !== 'object') return;
+      switch (m.t) {
+        case 'init': {
+          clearTimeout(joinTimeout);
+          netReady = true; isHost = false;
+          genWorld(m.seed);
+          for (const e of m.edits) world[idx(e[0], e[1], e[2])] = e[3];
+          spawnPos = { x: m.spawn[0], y: m.spawn[1], z: m.spawn[2] };
+          me.color = colorHexStr(m.color);
+          startGameCommon(m.code);
+          for (const [pid, p] of Object.entries(m.players)) addRemote(pid, p.n, p.c, p.x, p.y, p.z);
+          break;
+        }
+        case 'join': addRemote(m.id, m.n, m.c, m.x, m.y, m.z); sysChat(m.n + ' joined the world'); break;
+        case 'leave': { const r = remotes.get(m.id); if (r) sysChat(r.name + ' left the world'); removeRemote(m.id); break; }
+        case 's': if (m.id !== myPeerId()) onRemoteState(m.id, m); break;
+        case 'e': applyRemoteEdit(m); break;
+        case 'c': addChat(m.n, colorHexStr(m.col), m.m); break;
+      }
+    });
+    hostConn.on('close', () => {
+      if (state === 'playing') showFatal('The host has disconnected.');
+      else menuStatus('Connection closed by host.', true);
+    });
+  });
+  peer.on('error', e => {
+    clearTimeout(joinTimeout);
+    if (e.type === 'peer-unavailable') menuStatus('Room ' + code + ' not found. Check the code with the host.', true);
+    else if (state === 'menu') menuStatus('Network error: ' + e.type, true);
+  });
+}
+
+function bcast(msg, exceptId) {
+  for (const [id, c] of conns) if (id !== exceptId && c.open) { try { c.send(msg); } catch (_) {} }
+}
+function applyRemoteEdit(m) {
+  if (typeof m.x !== 'number') return;
+  setBlock(m.x, m.y, m.z, m.b);
+  if (isHost) editLog.set(m.x + ',' + m.y + ',' + m.z, m.b);
+}
+function netSendEdit(x, y, z, b) {
+  if (isHost) { editLog.set(x + ',' + y + ',' + z, b); bcast({ t: 'e', x, y, z, b }); }
+  else if (hostConn && hostConn.open) hostConn.send({ t: 'e', x, y, z, b });
+}
+let sendAcc = 0;
+function netTick(dt) {
+  if (!netReady) return;
+  sendAcc += dt;
+  if (sendAcc < 0.083) return;      // ~12 Hz
+  sendAcc = 0;
+  const m = { t: 's', x: rnd2(me.x), y: rnd2(me.y), z: rnd2(me.z), w: rnd2(camYaw), p: rnd2(camPitch), n: me.name };
+  if (isHost) bcast({ ...m, id: myPeerId() });
+  else if (hostConn && hostConn.open) hostConn.send(m);
+}
+const rnd2 = v => Math.round(v * 100) / 100;
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; return h; }
+function colorNum(c) { return typeof c === 'number' ? c : parseInt(c.replace('#', ''), 16); }
+function colorHexStr(c) { return '#' + (typeof c === 'number' ? c : colorNum(c)).toString(16).padStart(6, '0'); }
+
+/* ----------------------------------- audio --------------------------------- */
+let actx = null;
+function sfx(kind) {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    const t = actx.currentTime;
+    if (kind === 'break') { o.type = 'sawtooth'; o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(55, t + .11); }
+    else { o.type = 'square'; o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(330, t + .07); }
+    g.gain.setValueAtTime(.12, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .12);
+    o.start(t); o.stop(t + .13);
+  } catch (_) {}
+}
+
+/* ------------------------------------ UI ----------------------------------- */
+function buildHotbar() {
+  const hb = $('hotbar');
+  hb.innerHTML = '';
+  HOTBAR.forEach((b, i) => {
+    const bd = BLOCKS[b];
+    const el = document.createElement('div');
+    el.className = 'slot' + (i === hotbarSel ? ' sel' : '');
+    el.innerHTML = `<span class="num">${i + 1}</span><div class="cube" style="background:${colorHexStr(bd.side)}"></div><span class="nm">${bd.name}</span>`;
+    hb.appendChild(el);
+  });
+}
+function selectSlot(i) {
+  hotbarSel = i;
+  [...$('hotbar').children].forEach((el, k) => el.classList.toggle('sel', k === i));
+}
+function addChat(who, colorCss, msg) {
+  const log = $('chatlog');
+  const el = document.createElement('div');
+  el.className = 'cmsg';
+  const w = document.createElement('span');
+  w.className = 'who'; w.style.color = colorCss; w.textContent = who + ': ';
+  el.appendChild(w);
+  el.appendChild(document.createTextNode(msg));
+  log.appendChild(el);
+  while (log.children.length > 8) log.removeChild(log.firstChild);
+}
+function sysChat(msg) {
+  const log = $('chatlog');
+  const el = document.createElement('div');
+  el.className = 'cmsg sys';
+  el.textContent = msg;
+  log.appendChild(el);
+  while (log.children.length > 8) log.removeChild(log.firstChild);
+}
+function updatePlayerCount() { $('playerCount').textContent = String(remotes.size + 1); }
+let toastT = null;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg; el.style.opacity = '1';
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.style.opacity = '0', 1800);
+}
+function showFatal(msg) {
+  $('fatalMsg').textContent = msg;
+  $('fatal').classList.remove('hidden');
+  document.exitPointerLock && document.exitPointerLock();
+}
+function copyRoomCode() {
+  if (!roomCode) return;
+  const done = () => toast('Room code ' + roomCode + ' copied — send it to your friends!');
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(roomCode).then(done, () => toast('Room code: ' + roomCode));
+  else toast('Room code: ' + roomCode);
+}
+
+/* --------------------------------- game flow -------------------------------- */
+function startGame(seed, code) {         // host + singleplayer path
+  genWorld(seed);
+  startGameCommon(code);
+}
+function startGameCommon(code) {         // shared with the guest path (world already generated)
+  buildAllChunks();
+  me.x = spawnPos.x; me.y = spawnPos.y + 0.01; me.z = spawnPos.z;
+  me.vx = me.vy = me.vz = 0;
+  camYaw = Math.random() * 6.28; camPitch = -0.3;
+  if (me.model) removeCharacter(me.model);
+  me.model = makeCharacter(colorNum(me.color), me.name, false);
+  state = 'playing';
+  paused = false;
+  $('menu').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  roomCode = code || null;
+  $('roomCodeLbl').textContent = roomCode || 'SOLO';
+  $('roomChip').style.display = '';
+  $('pauseRoomLine').textContent = roomCode
+    ? 'Room code: ' + roomCode + ' — friends join with this code'
+    : 'Singleplayer world';
+  buildHotbar();
+  updatePlayerCount();
+  sysChat(roomCode ? 'World ready — share code ' + roomCode + ' with friends!' : 'Singleplayer world ready.');
+  tryPointerLock();
+}
+function tryPointerLock() {
+  const c = $('game');
+  if (!c.requestPointerLock) return;
+  try {
+    const p = c.requestPointerLock();
+    if (p && p.catch) p.catch(() => toast('Click the screen to capture your mouse'));
+  } catch (_) { toast('Click the screen to capture your mouse'); }
+}
+
+/* ---------------------------------- input ---------------------------------- */
+let mineHeld = false, lastMine = 0;
+function initInput() {
+  const canvas = $('game');
+  document.addEventListener('pointerlockchange', () => {
+    const locked = document.pointerLockElement === canvas;
+    const fatalShown = !$('fatal').classList.contains('hidden');
+    if (state === 'playing' && !locked && !chatOpen && !fatalShown) {
+      paused = true;
+      $('pause').classList.remove('hidden');
+    }
+    if (locked) { paused = false; $('pause').classList.add('hidden'); }
+  });
+  document.addEventListener('mousemove', e => {
+    if (document.pointerLockElement !== canvas || chatOpen) return;
+    camYaw -= e.movementX * 0.0026;
+    camPitch -= e.movementY * 0.0026;
+    camPitch = Math.max(-1.35, Math.min(1.35, camPitch));
+  });
+  document.addEventListener('mousedown', e => {
+    if (state !== 'playing' || document.pointerLockElement !== canvas || chatOpen) return;
+    if (e.button === 0) { mineHeld = true; tryBreak(); lastMine = performance.now(); }
+    else if (e.button === 2) tryPlace();
+  });
+  document.addEventListener('mouseup', e => { if (e.button === 0) mineHeld = false; });
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('wheel', e => {
+    if (state !== 'playing' || document.pointerLockElement !== canvas) return;
+    camDist = Math.max(2, Math.min(10, camDist + Math.sign(e.deltaY) * 0.8));
+  }, { passive: true });
+
+  document.addEventListener('keydown', e => {
+    if (state !== 'playing') return;
+    if (chatOpen) return;                          // chat input has its own handlers
+    keys.add(e.code);
+    if (e.code === 'Space') e.preventDefault();
+    if (e.code.startsWith('Digit')) {
+      const n = +e.code.slice(5);
+      if (n >= 1 && n <= HOTBAR.length) selectSlot(n - 1);
+    }
+    if (e.code === 'KeyT' && document.pointerLockElement === canvas) {
+      e.preventDefault();
+      chatOpen = true;
+      const ci = $('chatinput');
+      ci.classList.remove('hidden');
+      ci.value = '';
+      ci.focus();
+    }
+  });
+  document.addEventListener('keyup', e => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
+
+  const ci = $('chatinput');
+  ci.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      const msg = ci.value.trim().slice(0, 120);
+      if (msg) {
+        addChat(me.name, me.color, msg);
+        if (isHost) bcast({ t: 'c', id: myPeerId(), n: me.name, col: colorNum(me.color), m: msg });
+        else if (hostConn && hostConn.open) hostConn.send({ t: 'c', m: msg });
+      }
+      closeChat();
+    } else if (e.key === 'Escape') closeChat();
+  });
+  function closeChat() {
+    chatOpen = false;
+    ci.value = '';
+    ci.classList.add('hidden');
+    ci.blur();
+    $('game').focus();
+  }
+
+  $('roomChip').addEventListener('click', copyRoomCode);
+  $('btnCopyCode').addEventListener('click', copyRoomCode);
+  $('btnResume').addEventListener('click', () => canvas.requestPointerLock());
+  $('btnLeave').addEventListener('click', () => location.reload());
+  canvas.addEventListener('click', () => {
+    if (state === 'playing' && document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  });
+}
+
+/* --------------------------------- main loop -------------------------------- */
+let lastT = performance.now(), fpsAcc = 0, fpsN = 0, fpsShown = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  if (state !== 'playing' || !world) return;
+
+  updatePlayer(dt);
+  updateRemotes(dt);
+  const ray = updateCamera();
+  updateTarget(ray);
+  netTick(dt);
+
+  if (mineHeld && !chatOpen && !paused && now - lastMine > 260) { tryBreak(); lastMine = now; }
+
+  for (const c of cloudGroup.children) {
+    c.position.x += dt * 1.6;
+    if (c.position.x > W + 50) c.position.x = -50;
+  }
+
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 0.5) {
+    fpsShown = Math.round(fpsN / fpsAcc);
+    fpsAcc = 0; fpsN = 0;
+    $('debug').textContent = `${fpsShown} fps · ${me.x.toFixed(1)}, ${me.y.toFixed(1)}, ${me.z.toFixed(1)}` +
+      (BLOCKS[HOTBAR[hotbarSel]] ? ` · holding ${BLOCKS[HOTBAR[hotbarSel]].name}` : '');
+  }
+  renderer.render(scene, camera);
+}
+
+/* ----------------------------------- boot ----------------------------------- */
+function boot() {
+  if (!window.THREE) {
+    menuStatus('Three.js failed to load. This file needs internet access on first open.', true);
+    $('btnHost').disabled = $('btnJoin').disabled = $('btnSolo').disabled = true;
+    return;
+  }
+  initThree();
+  initInput();
+  buildHotbar();
+
+  const nameEl = $('nameInput');
+  nameEl.value = localStorage.getItem('vxv-name') || '';
+  const grabName = () => {
+    me.name = (nameEl.value.trim() || 'Player' + Math.floor(Math.random() * 900 + 100)).slice(0, 16);
+    localStorage.setItem('vxv-name', nameEl.value.trim());
+    me.color = colorHexStr(PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)]);
+  };
+  $('btnHost').addEventListener('click', () => { grabName(); hostGame(); });
+  $('btnJoin').addEventListener('click', () => { grabName(); joinGame($('codeInput').value); });
+  $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') { grabName(); joinGame($('codeInput').value); } });
+  $('btnSolo').addEventListener('click', () => { grabName(); netReady = false; startGame(Math.floor(Math.random() * 2 ** 31), null); });
+
+  if (!window.Peer) menuStatus('PeerJS failed to load — online play unavailable, Singleplayer still works.', true);
+  requestAnimationFrame(frame);
+}
+boot();
+</script>
+</body>
+</html>
