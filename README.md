@@ -1,11 +1,22 @@
-# 🧊 VoxelVerse
+# 🎮 Game
+
+Browser games, each playable straight from its HTML file — no install, no build.
+
+| Game | Play | What it is |
+|---|---|---|
+| 📱 **Phone Empire Tycoon** | [`phone-empire/index.html`](phone-empire/index.html) · [docs](phone-empire/README.md) | Build a device empire from 2008 onward: engineer phones and tablets part by part, floorplan your own chips, build factories for every component, and out-research your rivals. |
+| 🧊 **VoxelVerse** | [`index.html`](index.html) | Third-person multiplayer voxel sandbox (details below). |
+
+---
+
+## 🧊 VoxelVerse
 
 A third-person **multiplayer voxel sandbox game in a single HTML file**. Download
 [`index.html`](index.html), open it in a desktop browser, and play — no install, no build, no server to run.
 
 ![genre](https://img.shields.io/badge/genre-voxel%20sandbox-6ee76e) ![players](https://img.shields.io/badge/multiplayer-P2P%20WebRTC-5ec4ff) ![files](https://img.shields.io/badge/files-1-b48cff)
 
-## How to play with friends
+### How to play with friends
 
 1. One player opens `index.html`, enters a name, and clicks **Host Online World** — a 5-letter room code appears in the top-right corner (click it to copy).
 2. Friends open the same file (send it to them, or serve it anywhere), type the code, and click **Join**.
@@ -13,7 +24,7 @@ A third-person **multiplayer voxel sandbox game in a single HTML file**. Downloa
 
 Multiplayer is peer-to-peer over WebRTC (PeerJS handles signaling), so there is no game server — the host's browser *is* the server. An internet connection is required for online play; **Singleplayer (offline)** works once the page assets are cached.
 
-## Controls
+### Controls
 
 | Input | Action |
 |---|---|
@@ -30,7 +41,7 @@ Multiplayer is peer-to-peer over WebRTC (PeerJS handles signaling), so there is 
 | `T` | Chat |
 | `Esc` | Pause menu |
 
-## Gameplay
+### Gameplay
 
 You start with empty pockets. **Break blocks to gather them** — every mined block turns into
 a pickup that flies into your inventory, and placing costs what you carry. Punch trees for
@@ -40,7 +51,7 @@ When the sun sets, **zombies** rise and hunt players — they hit hard, so build
 keep your hearts up. Health regenerates slowly when you haven't been hurt for a while;
 falling from heights hurts too.
 
-## Features
+### Features
 
 - **Procedural terrain** — seeded value-noise heightmap with plains, mountains, beaches, lakes, snowy peaks, and forests; every peer generates an identical world from the shared seed.
 - **Pixel-art texturing** — a 16-tile atlas drawn procedurally on a canvas at boot (grass tufts, bark ridges, growth rings, brick courses, glass sheen…), sampled with nearest-neighbor filtering; combined with per-vertex ambient occlusion and directional face shading.
@@ -52,6 +63,6 @@ falling from heights hurts too.
 - **Host-relay networking** — the host owns the seed, edit log, mobs, and loot authority; guests connect by room code, late joiners receive the full edit history, and state updates stream at ~12 Hz with interpolation. A background tick keeps the host's world alive even when its tab is hidden.
 - **Chat, pause menu, sound effects** — the whole game UI lives in the same file.
 
-## Tech notes
+### Tech notes
 
 The file loads exactly two libraries from CDN at runtime: [Three.js](https://threejs.org) (rendering) and [PeerJS](https://peerjs.com) (WebRTC signaling via the free public PeerJS cloud). Everything else — engine, texture atlas, meshing, physics, mob AI, netcode, UI — is hand-written vanilla JavaScript inside `index.html`.

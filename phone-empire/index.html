@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone Empire Tycoon</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📱</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app" class="hidden">
+  <header id="top">
+    <div class="brand"><div class="logo">📱</div><span id="companyName"></span></div>
+    <div class="clock">
+      <button class="speed" data-speed="0" title="Pause (Space)">❚❚</button>
+      <button class="speed" data-speed="1" title="Normal speed (1)">▶</button>
+      <button class="speed" data-speed="2" title="Fast (2)">▶▶</button>
+      <button class="speed" data-speed="3" title="Very fast (3)">▶▶▶</button>
+      <div class="date" id="date"></div>
+    </div>
+    <div class="stats" id="topStats"></div>
+    <button class="btn sm" id="menuBtn">☰ Menu</button>
+  </header>
+  <nav id="nav"></nav>
+  <main id="view"></main>
+</div>
+<div id="toasts"></div>
+<div id="modal" class="hidden"></div>
+
+<script src="js/data.js"></script>
+<script src="js/model.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/phonelab.js"></script>
+<script src="js/chiplab.js"></script>
+<script src="js/views.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
