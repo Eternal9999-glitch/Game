@@ -29,7 +29,7 @@ const ChipLab = {
     if (!S.chipDraft) S.chipDraft = defaultChipDraft(now());
     const dr = S.chipDraft;
     const nodes = nodesForDesign();
-    if (!nodes.some(n => n.nm === dr.nm)) { dr.nm = frontierNode(now(), 0).nm; }
+    if (!nodes.some(n => n.nm === dr.nm)) { dr.nm = nodes[nodes.length - 1].nm; }
     const node = nodeByNm(dr.nm);
     dr.clock = clamp(dr.clock, +(node.fnom * 0.6).toFixed(2), +(node.fnom * 1.25).toFixed(2));
     const av = playerAv();
@@ -85,7 +85,10 @@ const ChipLab = {
     return `<table class="tbl">${S.chips.slice().reverse().map(c => `<tr>
       <td><b>${esc(c.name)}</b><div class="tiny faint">${nodeLabel(c.stats.nm)} · ${c.stats.area} mm² · CPU ${fmtNum(c.stats.cpu)}</div></td>
       <td class="num">${c.status === 'ready' ? '<span class="tag good">ready</span>' : `<span class="tag warn">${Math.max(0, c.readyDay - S.day)}d</span>`}
-      <div><button class="btn sm mt-s" data-edit="${c.id}" title="Load as a new revision">Revise</button></div></td></tr>`).join('')}</table>`;
+      <div><button class="btn sm mt-s" data-edit="${c.id}" title="Load as a new revision">Revise</button></div></td></tr>
+      ${c.status === 'ready' ? `<tr><td colspan="2"><label class="chk small" title="Rival brands may buy it if it beats the vendors' chips on value"><input type="checkbox" data-list="${c.id}" ${c.listed ? 'checked' : ''}> Sell to other brands at</label>
+        $<input type="number" data-lprice="${c.id}" value="${(c.listPrice || Math.round(customChipCost(c.stats, now()).e.foundry * 2.2 * 100) / 100).toFixed(2)}" step="0.5" min="1" style="width:76px">
+        <div class="tiny faint">Cost ${fmtMoney(customChipCost(c.stats, now()).e[hasFab(c.stats.nm) ? 'own' : 'foundry'])}/chip · sold ${fmtNum(c.sold || 0)}</div></td></tr>` : ''}`).join('')}</table>`;
   },
   cellPx() { const dr = S.chipDraft; return Math.floor(Math.min(56, 470 / Math.max(dr.w, dr.h))); },
   drawDie() {
@@ -185,10 +188,12 @@ const ChipLab = {
       if (act === 'preset') {
         const av = playerAv();
         dr.w = 5; dr.h = 5;
-        dr.blocks = PRESET.map(([type, x, y]) => {
-          const tp = blockLocked(type, av) ? 'cache' : type;   // only 1×1 blocks are ever locked in the preset
-          return { type: tp, x, y, w: BLOCKS[tp].w, h: BLOCKS[tp].h };
-        });
+        dr.blocks = [];
+        for (const [type, x, y] of PRESET) {
+          if (!blockLocked(type, av)) { dr.blocks.push({ type, x, y, w: BLOCKS[type].w, h: BLOCKS[type].h }); continue; }
+          // a locked block's cells become SRAM cache instead
+          for (let yy = y; yy < y + BLOCKS[type].h; yy++) for (let xx = x; xx < x + BLOCKS[type].w; xx++) dr.blocks.push({ type: 'cache', x: xx, y: yy, w: 1, h: 1 });
+        }
         this.render(el);
       }
       if (act === 'tapeout') {
@@ -205,6 +210,15 @@ const ChipLab = {
       }
     };
     $('#chipName').oninput = e => { dr.name = e.target.value; };
+    el.onchange = e => {
+      const l = e.target.dataset.list || e.target.dataset.lprice;
+      if (!l) return;
+      const c = S.chips.find(x => x.id === l);
+      const price = +$(`[data-lprice="${l}"]`, el).value;
+      const on = $(`[data-list="${l}"]`, el).checked;
+      listChip(c, on ? price : 0);
+      this.render(el);
+    };
     $('#chipNode').onchange = e => { dr.nm = Number(e.target.value); dr.clock = nodeByNm(dr.nm).fnom; this.render(el); };
     $('#chipClock').oninput = e => { dr.clock = Number(e.target.value); $('#clockVal').textContent = dr.clock.toFixed(2) + ' GHz'; this.changed(); };
     $('#heatT').onchange = e => { this.heat = e.target.checked; this.drawDie(); };

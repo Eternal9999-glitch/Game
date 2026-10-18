@@ -20,7 +20,7 @@ function interp(table, t) {
 }
 // price decline curve: falls `rate` per year after `since`, never below `floor` of the launch price
 const decl = (rate, since, t, floor) => Math.max(floor, Math.pow(1 - rate, Math.max(0, t - since)));
-const techMarket = id => (id ? TECH[id].market : 2000);
+const techMarket = id => (id ? TECH[id].market : 1990);
 
 function activeEvents(t) { return EVENTS.filter(e => t >= e.start && t < e.end); }
 function eventMul(key, t) {
@@ -33,7 +33,7 @@ function eventMul(key, t) {
 // An "availability" object answers: can this tech be used, and is it exclusive
 // to us (researched early, needs our own factory)?
 function marketAv(t) {
-  return { t, market: id => !id || t >= TECH[id].market, inhouse: () => false, ok(id) { return this.market(id); } };
+  return { t, market: id => !id || t >= TECH[id].market, ok(id) { return this.market(id); } };
 }
 
 // ---- Market timeline helpers ---------------------------------------------------
@@ -42,14 +42,23 @@ function frontierNode(t, lag) {
   NODES.forEach((n, k) => { if (n.year <= t - 0.25) i = k; });
   return NODES[Math.max(0, i - (lag || 0))];
 }
-const marketArchGen = t => clamp(1 + Math.floor((t - 2008) / 1.5 + 1e-9), 1, 14);
-const marketModemGen = t => (t >= 2019.5 ? 3 : t >= 2011 ? 2 : 1);
-const prefSize = (cat, t) => interp(CATS[cat].prefSize, t);
-function sizeScore(cat, size, t) {
-  const d = size - prefSize(cat, t), sg = CATS[cat].sigma;
+const marketArchGen = t => clamp(1 + Math.floor((t - 1995) / 1.6 + 1e-9), 1, 20);
+function marketModemGen(t) { let g = 1; MODEM_MARKET.forEach((y, i) => { if (i && t >= y) g = i; }); return g; }
+const formOf = spec => (spec.cat === 'tablet' ? 'slate' : spec.form);
+const isKeypad = form => !!FORMS[form].keypad;
+function prefSize(form, t) {
+  if (form === 'slate') return interp(TABLET_PREF, t);
+  if (form === 'fold') return 7.6;
+  if (form === 'touch') return interp(TOUCH_PREF, Math.max(2007, t));
+  return interp(KEYPAD_PREF, t);
+}
+function sizeScore(form, size, t) {
+  const d = size - prefSize(form, t);
+  const sg = form === 'slate' ? [1.2, 2.0] : form === 'touch' ? [0.55, 1.0] : form === 'fold' ? [0.5, 0.8] : [0.35, 0.6];
   const s = d < 0 ? sg[0] : sg[1];
   return Math.exp(-(d / s) * (d / s));
 }
+const formAppeal = (form, t) => interp(FORMS[form].appeal, t);
 function marketSize(cat, t) { return interp(MARKET_SIZE[cat], t) * eventMul('demand', t); }
 function segSplit(t) { return interp(SEG_SPLIT, t); }
 const segBudget = (cat, seg, t) => interp(SEG_BUDGET[cat], t)[SEGMENTS.indexOf(seg)];
@@ -190,10 +199,10 @@ function evalChipDesign(d) {
   const hasLive = t => units.some(u => u.type === t && u.valid);
   if (!hasLive('io')) issues.push({ err: true, text: has('io') ? 'Memory controllers must touch the die edge.' : 'Add at least one memory controller (IO) on the die edge.' });
   if (!has('pcore') && !has('ecore')) issues.push({ err: true, text: 'Add at least one CPU core.' });
-  if (!has('gpu')) issues.push({ err: true, text: 'Add a GPU cluster – the OS needs graphics.' });
+  if (!has('gpu')) issues.push({ err: false, text: 'No GPU: fine for basic phones, but smartphone UIs and games will crawl.' });
   if (has('modem') && !hasLive('modem')) issues.push({ err: false, text: 'Modem is not on the die edge – it will not work (phones will need a discrete modem).' });
   if (!has('modem')) issues.push({ err: false, text: 'No integrated modem: devices using this chip need a discrete modem chip (+cost, +power).' });
-  if (!has('isp')) issues.push({ err: false, text: 'No ISP: camera quality will suffer heavily.' });
+  if (!has('isp')) issues.push({ err: false, text: 'No ISP: camera phones using this chip get poor photos.' });
   if (fill < 0.7 && d.blocks.length) issues.push({ err: false, text: `${Math.round((1 - fill) * 100)}% of the die is empty – you pay for that silicon. Shrink the die.` });
   if (hotT > 90) issues.push({ err: false, text: `Hotspot ${Math.round(hotT)}°C: the chip will throttle. Spread hot blocks apart or lower the clock.` });
   const core = evalChipCore({ nm: d.nm, arch: d.arch, clock: d.clock, area, units, hotT, modemGen: d.modemGen, fill });
@@ -203,23 +212,23 @@ function evalChipDesign(d) {
 // ---- Off-the-shelf SoCs ------------------------------------------------------------
 function vendorChipCounts(tier, tr) {
   const yrs = Math.max(0, tr - 2008), little = tr >= 2011.5;
-  const flagGpu = Math.min(5, 1 + Math.floor(yrs / 5));
+  const flagGpu = tr < 2004 ? 0 : Math.min(5, 1 + Math.floor(yrs / 5));
+  const lagGen = { flagship: 0, mid: 1, budget: 2 }[tier];
+  const modemGen = marketModemGen(tr - lagGen);
   if (tier === 'flagship') return {
-    pcore: tr < 2010 ? 1 : tr < 2012 ? 2 : 4, ecore: little ? 4 : 0, gpu: flagGpu, cache: 5 + Math.floor(yrs / 4),
-    npu: tr >= 2021 ? 2 : tr >= 2017.7 ? 1 : 0, isp: 2, io: tr >= 2010 ? 2 : 1, modem: 1, media: tr >= 2012 ? 1 : 0,
-    modemGen: marketModemGen(tr) };
+    pcore: tr < 2010 ? 1 : tr < 2012 ? 2 : 4, ecore: little ? 4 : 0, gpu: flagGpu, cache: tr < 2004 ? 2 + (tr >= 2001 ? 1 : 0) : 5 + Math.floor(yrs / 4),
+    npu: tr >= 2021 ? 2 : tr >= 2017.7 ? 1 : 0, isp: tr < 2002 ? 0 : tr < 2006 ? 1 : 2, io: tr >= 2010 ? 2 : 1, modem: 1, media: tr >= 2004.5 ? 1 : 0, modemGen };
   if (tier === 'mid') return {
-    pcore: tr < 2011 ? 1 : 2, ecore: little ? (tr >= 2015 ? 6 : 4) : 0, gpu: Math.max(1, flagGpu - 1), cache: 2 + Math.floor(Math.max(0, yrs) / 5),
-    npu: tr >= 2019 ? 1 : 0, isp: 1, io: tr >= 2016 ? 2 : 1, modem: 1, media: tr >= 2014 ? 1 : 0,
-    modemGen: tr >= 2020.5 ? 3 : tr >= 2012 ? 2 : 1 };
+    pcore: tr < 2011 ? 1 : 2, ecore: little ? (tr >= 2015 ? 6 : 4) : 0, gpu: tr < 2006 ? 0 : Math.max(1, flagGpu - 1), cache: 2 + Math.floor(yrs / 5),
+    npu: tr >= 2019 ? 1 : 0, isp: tr >= 2003 ? 1 : 0, io: tr >= 2016 ? 2 : 1, modem: 1, media: tr >= 2014 ? 1 : 0, modemGen };
   return {
-    pcore: tr < 2018 ? 1 : 2, ecore: little ? 4 : 0, gpu: 1, cache: 2, npu: tr >= 2021 ? 1 : 0, isp: 1, io: 1, modem: 1, media: 0,
-    modemGen: tr >= 2021.5 ? 3 : tr >= 2013 ? 2 : 1 };
+    pcore: tr < 2018 ? 1 : 2, ecore: little ? 4 : 0, gpu: tr < 2009 ? 0 : 1, cache: tr < 2005 ? 1 : 2, npu: tr >= 2021 ? 1 : 0,
+    isp: tr >= 2005 ? 1 : 0, io: 1, modem: 1, media: 0, modemGen };
 }
 const VENDOR_CHIPS = [];
 (function buildVendorChips() {
   const assumedAdj = { pcore: 2, ecore: 1, gpu: 2, npu: 1 };
-  for (let y = 2005; y <= 2060; y++) {
+  for (let y = 1992; y <= 2060; y++) {
     for (const v of VENDORS) {
       v.tiers.forEach((tier, ti) => {
         const tr = y + (v.month + ti * 0.4) / 12;
@@ -236,7 +245,7 @@ const VENDOR_CHIPS = [];
           }
         }
         const area = Math.round(cells * CELL_MM2 * 1.25);
-        const clock = +(node.fnom * ({ flagship: 1, mid: 0.95, budget: 0.88 }[tier])).toFixed(2);
+        const clock = +(node.fnom * ({ flagship: 1, mid: 0.95, budget: 0.88 }[tier])).toFixed(3);
         const st = evalChipCore({ nm: node.nm, arch, clock, area, units, hotT: 85, modemGen: counts.modemGen, fill: 0.8 });
         const digit = { flagship: 8, mid: 6, budget: 4 }[tier];
         VENDOR_CHIPS.push(Object.assign(st, {
@@ -248,7 +257,8 @@ const VENDOR_CHIPS = [];
   }
   VENDOR_CHIPS.sort((a, b) => a.release - b.release);
 })();
-const vendorChipById = id => VENDOR_CHIPS.find(c => c.id === id);
+const VENDOR_BY_ID = Object.fromEntries(VENDOR_CHIPS.map(c => [c.id, c]));
+const vendorChipById = id => VENDOR_BY_ID[id];
 function vendorChipsAvailable(t) { return VENDOR_CHIPS.filter(c => c.release <= t && t < c.release + 3.5); }
 function vendorChipPrice(chip, t) {
   const e = chipEconomics(chip.area, chip.nm, t);
@@ -262,17 +272,47 @@ function flagshipChip(t) {
   return best || vendorChipsAvailable(t)[0];
 }
 
-// ---- Component pricing (supplier/market prices) ----------------------------------------
-function displayGeom(cat, size, fullview) {
-  const aspect = cat === 'tablet' ? (fullview ? 1.45 : 1.33) : (fullview ? 2.17 : 1.78);
-  const w = size / Math.sqrt(1 + aspect * aspect);
-  return { w, h: w * aspect, area: w * w * aspect, aspect };
+// ---- Device geometry ------------------------------------------------------------------
+function screenAspect(spec, t) {
+  const form = formOf(spec), fv = spec.display.fullview;
+  if (form === 'slate') return fv ? 1.45 : 1.33;
+  if (form === 'fold') return 1.15;
+  if (form === 'qwerty') return 0.78;
+  if (form === 'touch') return fv ? 2.17 : (t < 2011 ? 1.5 : 1.78);
+  return 1.3;
 }
+function screenToBody(cat, t, fullview) {
+  const base = fullview ? clamp(0.83 + 0.015 * (t - 2017.3), 0.83, 0.91) : clamp(0.5 + 0.022 * (t - 2007), 0.5, 0.73);
+  return cat === 'tablet' ? Math.min(0.92, base + 0.08) : base;
+}
+// body size in inches. Keypad phones need room below the screen for keys.
+function bodyGeom(spec, t) {
+  const form = formOf(spec), size = spec.display.size;
+  const a = screenAspect(spec, t);
+  const sw = size / Math.sqrt(1 + a * a), sh = sw * a, area = sw * sh;
+  let w, h, openH = 0, keypadH = 0;
+  // a number pad needs ~1.75" × 1.7" of thumb room
+  if (form === 'candybar') { w = Math.max(sw + 0.42, 1.75); keypadH = 1.75; h = sh + 0.55 + keypadH; }
+  else if (form === 'flip') { w = Math.max(sw + 0.38, 1.8); h = Math.max(sh + 0.5, 2.05); openH = h * 2; keypadH = h - 0.3; }
+  else if (form === 'qwerty') { w = Math.max(sw + 0.3, 2.3); keypadH = 1.3; h = sh + 0.45 + keypadH; }
+  else if (form === 'slider') { w = Math.max(sw + 0.3, 1.8); h = Math.max(sh + 0.6, 2.9); keypadH = h * 0.6; }
+  else if (form === 'fold') { w = sw / 2 + 0.12; h = sh + 0.2; }
+  else {
+    const stb = screenToBody(spec.cat, t, spec.display.fullview);
+    const side = spec.cat === 'tablet' ? (spec.display.fullview ? 0.22 : 0.38) : (spec.display.fullview ? 0.07 : 0.16);
+    w = sw + side * 2; h = area / stb / w;
+  }
+  const footprint = w * h;
+  const front = form === 'fold' ? footprint * 2 : footprint;
+  return { form, w, h, sw, sh, area, aspect: a, openH, keypadH, footprintCm2: footprint * 6.4516, stb: Math.min(0.95, area / front) };
+}
+
+// ---- Component pricing (supplier/market prices) ----------------------------------------
 function earlyMul(since, t) { return t < since ? 1 + (since - t) * 0.3 : 1; }
-function displayPrice(d, cat, t) {
-  const dt = DISPLAY_TECH[d.tech], g = displayGeom(cat, d.size, d.fullview);
+function displayPrice(d, g, t) {
+  const dt = DISPLAY_TECH[d.tech], tc = TOUCH[d.touch || 'none'];
   const per = dt.cost * decl(dt.rate, dt.since, t, dt.floor) * earlyMul(dt.since, t);
-  const touch = 2.0 * decl(0.09, 2007, t, 0.2);
+  const touch = tc.cost * decl(0.09, tc.since, t, 0.2);
   const hz = (REFRESH.find(r => r.hz === d.hz) || REFRESH[0]).cost;
   const ea = 5.2 * Math.pow(g.area / 5.2, 0.55);   // big panels cost less per in² (mother-glass efficiency)
   return (ea * (per * Math.pow(d.ppi / 250, 0.6) * hz + touch) + 2) * (d.fullview ? 1.1 : 1) * eventMul('display', t);
@@ -281,43 +321,65 @@ function camModulePrice(c, t, periscope) {
   const area = SENSORS[c.sensor].area;
   const sensor = area * 0.5 * decl(0.08, 2007, t, 0.15) + c.mp * 0.5 * decl(0.18, 2007, t, 0.03);
   const lens = 2 * decl(0.04, 2007, t, 0.5) + (c.ois ? 5 * decl(0.1, 2012.7, t, 0.35) : 0) + (periscope ? 12 * decl(0.1, 2019.2, t, 0.4) : 0);
-  return sensor + lens;
+  return (sensor + lens) * (t < 2004 ? 1 + (2004 - t) * 0.15 : 1);
 }
 function camerasList(cams) {
-  const l = [['main', cams.main]];
+  const l = [];
+  if (cams.main.on) l.push(['main', cams.main]);
   if (cams.ultra.on) l.push(['ultra', cams.ultra]);
   if (cams.tele.on) l.push(['tele', cams.tele]);
-  l.push(['front', cams.front]);
+  if (cams.front.on) l.push(['front', cams.front]);
   return l;
 }
 function camerasPrice(cams, t) {
-  return camerasList(cams).reduce((a, [k, c]) => a + camModulePrice(c, t, k === 'tele' && c.periscope), 0);
+  return camerasList(cams).reduce((a, [k, c]) => a + camModulePrice(c, t, k === 'tele' && c.periscope), 0) + (cams.flash && cams.main.on ? 1.5 : 0);
 }
 function batteryPrice(b, t) {
   const wh = b.mah * VOLTAGE / 1000, ch = CHARGE.find(x => x.w === b.charge) || CHARGE[0];
-  const perWh = 0.9 * decl(0.07, 2007, t, 0.12) * CHEM[b.chem].cost;
+  const perWh = 0.9 * (t < 2007 ? 1 + 0.08 * (2007 - t) : decl(0.07, 2007, t, 0.12)) * CHEM[b.chem].cost;
   return wh * perWh + 1 + ch.cost * decl(0.1, techMarket(ch.tech), t, 0.3) + (b.wireless ? 4 * decl(0.1, 2012.5, t, 0.3) : 0);
 }
 function memoryPrice(m, t) {
-  const dram = 18 * Math.pow(0.85, t - 2008), nand = Math.max(0.03, 2 * Math.pow(0.78, t - 2008));
-  return (m.ram / 1024 * dram + m.storage * nand + 1.5 + (m.sd ? 0.5 : 0)) * eventMul('memory', t);
+  const y = t - 2008;
+  const dram = 18 * (y < 0 ? Math.pow(0.6, y) : Math.pow(0.85, y));                    // $ per GB
+  const nand = Math.max(0.03, 2 * (y < 0 ? Math.pow(0.5, y) : Math.pow(0.78, y)));      // $ per GB
+  return (m.ram / 1024 * dram + m.storage / 1024 * nand + 1.5 + (m.sd ? 0.8 : 0)) * eventMul('memory', t);
 }
-function bodyPrice(body, bodyAreaCm2, t) {
-  const m = MATERIALS[body.mat];
-  return m.cost * decl(0.03, techMarket(m.tech), t, 0.6) * earlyMul(techMarket(m.tech), t) * Math.pow(bodyAreaCm2 / 70, 0.7) + WATER[body.water].cost;
+function bodyPrice(spec, g, t) {
+  const body = spec.body, m = MATERIALS[body.mat], form = FORMS[formOf(spec)];
+  return m.cost * decl(0.03, techMarket(m.tech), t, 0.6) * earlyMul(techMarket(m.tech), t) * Math.pow(g.footprintCm2 / 70, 0.7) +
+    WATER[body.water].cost + form.cost * decl(0.06, techMarket(form.tech), t, 0.4) + (body.antenna === 'internal' ? 0.5 : 0);
 }
-function featuresPrice(f, t) {
-  const fp = FINGERPRINT[f.fp];
-  return fp.cost * decl(0.09, fp.since, t, 0.3) + (f.face3d ? 25 * decl(0.08, 2017.7, t, 0.35) : 0) + (f.nfc ? 3 * decl(0.1, 2011, t, 0.3) : 0) +
-    (f.stereo ? 3 : 0) + (f.jack ? 0.5 : 0);
+function featuresPrice(spec, t) {
+  const f = spec.feat, fp = FINGERPRINT[f.fp];
+  let c = fp.cost * decl(0.09, fp.since, t, 0.3);
+  for (const [key, , , , cost, since] of EXTRAS) if (f[key]) c += cost * decl(0.1, since, t, 0.3);
+  return c;
+}
+function osFee(spec, t, ownOS) {
+  const os = OS[spec.os];
+  return ownOS ? 0 : os.fee * decl(0.04, techMarket(os.tech), t, 0.5);
 }
 function discreteModemPrice(gen, t) {
-  const base = [0, 14, 25, 40][gen], since = [2005, 2005, 2011, 2019.5][gen];
-  return base * decl(0.12, since, t, 0.3);
+  const base = [0, 25, 28, 32, 25, 40][gen];
+  return base * decl(0.12, MODEM_MARKET[gen], t, 0.3);
 }
-function screenToBody(cat, t, fullview) {
-  const base = fullview ? clamp(0.83 + 0.015 * (t - 2017.3), 0.83, 0.91) : clamp(0.52 + 0.022 * (t - 2008), 0.52, 0.73);
-  return cat === 'tablet' ? Math.min(0.92, base + 0.08) : base;
+function miscPrice(spec, t) {
+  const kp = FORMS[formOf(spec)].keypad;
+  return interp(CATS[spec.cat].misc, t) + (kp === 'num' ? 3 : kp === 'qwerty' ? 6 : 0);
+}
+// what a contract manufacturer charges per unit (before its own fee multiplier)
+function laborPrice(spec, t, nCams) {
+  return interp(CATS[spec.cat].labor, t) + Math.max(0, nCams - 1) + FORMS[formOf(spec)].labor + (spec.display.touch !== 'none' ? 1 : 0);
+}
+// how hard a device is to build (contract manufacturers have a maximum)
+function complexityTier(spec) {
+  const d = spec.display, form = formOf(spec), mat = spec.body.mat, nc = camerasList(spec.cams).length;
+  if (form === 'fold' || mat === 'ti' || d.tech === 'ltpo' || d.tech === 'tandem' || (spec.cams.tele.on && spec.cams.tele.periscope)) return 5;
+  if (d.tech === 'amoled' || ['glass', 'steel', 'ceramic'].includes(mat) || nc >= 3) return 4;
+  if (['smart', 'touch', 'modern', 'ai'].includes(spec.os) || form === 'touch' || form === 'slate' || mat === 'alu') return 3;
+  if (d.tech !== 'mono' || spec.cams.main.on || form !== 'candybar') return 2;
+  return 1;
 }
 
 // ---- Device evaluation -------------------------------------------------------------
@@ -331,16 +393,20 @@ function camModuleRaw(c, av, periscope) {
   return Math.pow(c.mp, 0.35) * Math.sqrt(s.area) * noise * (c.ois ? 1.1 : 1) * bsi * (periscope ? 1.3 : 1);
 }
 function cameraRaw(cams, av, media) {
-  let r = camModuleRaw(cams.main, av) + 0.25 * camModuleRaw(cams.front, av);
+  if (!cams.main.on) return cams.front.on ? 0.25 * camModuleRaw(cams.front, av) : 0;
+  let r = camModuleRaw(cams.main, av) * (cams.flash ? 1.05 : 1);
+  if (cams.front.on) r += 0.25 * camModuleRaw(cams.front, av);
   if (cams.ultra.on) r += 0.35 * camModuleRaw(cams.ultra, av);
   if (cams.tele.on) r += 0.4 * camModuleRaw(cams.tele, av, cams.tele.periscope);
   return r * (media ? 1.03 : 1);
 }
-function featurePoints(spec, chip) {
-  const f = spec.feat;
-  const modemGen = chip.modemGen || spec.modem || 1;
-  return [0, 10, 20, 30][modemGen] + 6 * Math.log2(spec.memory.storage) + (f.nfc ? 4 : 0) + (f.stereo ? 4 : 0) + (f.jack ? 3 : 0) +
-    (spec.memory.sd ? 3 : 0) + FINGERPRINT[f.fp].pts + (f.face3d ? 8 : 0) + (chip.media ? 3 : 0);
+function featurePoints(spec, chip, modemGen) {
+  const f = spec.feat, os = OS[spec.os];
+  let p = [0, 6, 12, 20, 28, 36][modemGen] + 3 * Math.log2(Math.max(1, spec.memory.storage)) + (spec.memory.sd ? 3 : 0) +
+    FINGERPRINT[f.fp].pts + (chip.media ? 3 : 0);
+  for (const [key, , , pts] of EXTRAS) if (f[key]) p += pts;
+  p += os.needsTouch && spec.display.touch === 'none' ? os.pts * 0.4 : os.pts;
+  return p;
 }
 
 // Returns everything the UI/sim need to know about a device design at time t.
@@ -348,17 +414,13 @@ function featurePoints(spec, chip) {
 function evalPhone(spec, t, av, chip) {
   const cat = CATS[spec.cat];
   const d = spec.display, b = spec.battery, body = spec.body;
-  const dt = DISPLAY_TECH[d.tech], mat = MATERIALS[body.mat], chem = CHEM[b.chem];
-  const g = displayGeom(spec.cat, d.size, d.fullview);
-  const stb = screenToBody(spec.cat, t, d.fullview);
-  const bodyAreaIn2 = g.area / stb, bodyAreaCm2 = bodyAreaIn2 * 6.4516;
-  const sideBezel = spec.cat === 'tablet' ? (d.fullview ? 0.22 : 0.38) : (d.fullview ? 0.07 : 0.16);
-  const bodyW = g.w + sideBezel * 2, bodyH = bodyAreaIn2 / bodyW;
+  const dt = DISPLAY_TECH[d.tech], mat = MATERIALS[body.mat], chem = CHEM[b.chem], form = FORMS[formOf(spec)];
+  const g = bodyGeom(spec, t);
   const wh = b.mah * VOLTAGE / 1000;
   const battVol = wh / chem.whl * 1000;
   const techBase = Math.max(2.4, 5 - 0.26 * (t - 2008));   // board/stack miniaturization
-  const thick = dt.stack + mat.shell + techBase + (battVol + cat.intVol) / bodyAreaCm2 * 10;
-  const weight = bodyAreaCm2 * thick / 10 * mat.dens + wh * 4;
+  const thick = dt.stack + mat.shell + techBase + (battVol + cat.intVol) / g.footprintCm2 * 10 + form.extraThick;
+  const weight = g.footprintCm2 * thick / 10 * mat.dens * (1 + 0.035 * Math.max(0, 2008 - t)) + wh * chem.gwh;
   const hzInfo = REFRESH.find(r => r.hz === d.hz) || REFRESH[0];
   const adaptive = d.tech === 'ltpo' || d.tech === 'tandem';
   const dispPower = g.area * 0.06 * dt.pwr * Math.pow(d.ppi / 300, 0.3) * (adaptive ? 1 : hzInfo.pwr);
@@ -366,48 +428,48 @@ function evalPhone(spec, t, av, chip) {
   const modemGen = integrated ? chip.modemGen : (spec.modem || 1);
   const avgPower = cat.basePower + dispPower + chip.power * 0.12 + (integrated ? 0.08 : 0.2);
   const hours = wh / avgPower;
-  const budget = (2.0 + 0.17 * (t - 2008)) * mat.therm * Math.pow(bodyAreaCm2 / 70, 0.35);
-  const sustain = Math.min(1, Math.pow(budget / chip.power, 0.6));
+  const budget = Math.max(0.8, 2.0 + 0.17 * (t - 2008)) * mat.therm * Math.pow(g.footprintCm2 / 70, 0.35);
+  const sustain = Math.min(1, Math.pow(budget / Math.max(0.01, chip.power), 0.6));
   const ppiQ = Math.pow(Math.min(d.ppi, 570), 0.5);
-  const wpa = weight / bodyAreaCm2;
+  const wpa = weight / g.footprintCm2;
   const raw = {
     cpu: chip.cpu * (0.5 + 0.5 * sustain),
     gpu: chip.gpu * (0.3 + 0.7 * sustain),
     ai: chip.tops, isp: chip.isp, ram: spec.memory.ram,
     cam: cameraRaw(spec.cams, av, chip.media),
-    disp: ppiQ * dt.q * hzInfo.q * (d.fullview ? 1.06 : 1),
-    size: d.size,
+    disp: ppiQ * dt.q * hzInfo.q * TOUCH[d.touch || 'none'].q * (d.fullview ? 1.06 : 1),
+    size: d.size, form: formOf(spec),
     hours, charge: b.charge + (b.wireless ? 8 : 0),
-    design: mat.q * Math.pow(8 / thick, 0.7) * Math.pow(1.3 / wpa, 0.35) * Math.pow(stb, 1.2) * (1 + WATER[body.water].q),
-    feat: featurePoints(spec, chip), modem: modemGen,
+    design: mat.q * Math.pow(8 / thick, 0.7) * Math.pow(1.3 / wpa, 0.35) * Math.pow(g.stb, 0.5) * (1 + WATER[body.water].q) * (body.antenna === 'internal' ? 1 : 0.9),
+    feat: featurePoints(spec, chip, modemGen), modem: modemGen,
   };
   // ---- bill of materials (supplier prices) ----
   const nCams = camerasList(spec.cams).length;
   const bom = {
     chip: chip.kind === 'vendor' ? vendorChipPrice(chip, t) : null,   // custom chips priced by the sim
     modem: integrated ? 0 : discreteModemPrice(modemGen, t),
-    display: displayPrice(d, spec.cat, t),
+    display: displayPrice(d, g, t),
     camera: camerasPrice(spec.cams, t),
     battery: batteryPrice(b, t),
     memory: memoryPrice(spec.memory, t),
-    body: bodyPrice(body, bodyAreaCm2, t) + featuresPrice(spec.feat, t),
-    misc: cat.misc,
-    assembly: cat.assembly + (nCams - 2),
+    body: bodyPrice(spec, g, t) + featuresPrice(spec, t),
+    misc: miscPrice(spec, t),
+    os: osFee(spec, t, av.ok && av.ownOS && av.ownOS()),
+    assembly: laborPrice(spec, t, nCams),
   };
   return {
-    raw, bom, nCams, thick, weight, hours, sustain, budget, avgPower, wh,
-    dims: { w: bodyW, h: bodyH, screenW: g.w, screenH: g.h, stb, aspect: g.aspect, bodyAreaCm2 },
-    res: [Math.round(g.w * d.ppi / 8) * 8, Math.round(g.h * d.ppi / 8) * 8],
-    chipPower: chip.power, modemGen, integrated,
+    raw, bom, nCams, thick, weight, hours, sustain, budget, avgPower, wh, geom: g,
+    dims: { w: g.w, h: g.h, screenW: g.sw, screenH: g.sh, stb: g.stb, aspect: g.aspect, bodyAreaCm2: g.footprintCm2 },
+    res: [Math.max(8, Math.round(g.sw * d.ppi / 8) * 8), Math.max(8, Math.round(g.sh * d.ppi / 8) * 8)],
+    chipPower: chip.power, modemGen, integrated, tier: complexityTier(spec),
   };
 }
 
-// ---- Flagship reference ("100 points" for each score) ----------------------------------
-function bestOf(list, av) { return list.find(x => av.ok(x)) || null; }
+// ---- Caps: what the available tech allows ---------------------------------------------
 function camCaps(av) {
-  let gen = CAM_GENS[0];
+  let gen = null;
   for (const gg of CAM_GENS) if (av.ok(gg[0])) gen = gg;
-  return { maxSensor: gen[1], maxMP: gen[2] };
+  return gen ? { has: true, maxSensor: gen[1], maxMP: gen[2] } : { has: false, maxSensor: 0, maxMP: 0.1 };
 }
 function memCaps(av) {
   let gen = MEM_GENS[0];
@@ -415,6 +477,23 @@ function memCaps(av) {
   return { ram: gen[1], storage: gen[2] };
 }
 function ppiCap(av) { let p = 0; for (const [id, v] of PPI_CAPS) if (av.ok(id)) p = Math.max(p, v); return p; }
+function mahCap(av, cat) {
+  let m = 0;
+  for (const [id, v] of MAH_CAPS) if (av.ok(id)) m = Math.max(m, v);
+  return cat === 'tablet' ? Math.max(3000, Math.round(m * 2.2 / 50) * 50) : m;
+}
+function sizeRange(av, spec) {
+  const form = formOf(spec), f = FORMS[form];
+  if (form === 'slate') {
+    let mx = 7;
+    for (const [id, v] of TABLET_SIZE_CAPS) if (av.ok(id)) mx = Math.max(mx, v);
+    return [7.0, mx];
+  }
+  if (form === 'fold') return [7.0, 8.1];
+  let mx = 0;
+  for (const [id, v] of SIZE_CAPS) if (av.ok(id)) mx = Math.max(mx, v);
+  return [f.minSize, Math.max(f.minSize, Math.min(mx, f.maxSize))];
+}
 function bestMP(sensor, maxMP, av) {
   const quad = av.ok('cam_g6');
   let best = MP_OPTIONS[0];
@@ -425,83 +504,114 @@ function bestMP(sensor, maxMP, av) {
   }
   return best;
 }
-function flagshipSpec(cat, t) {
-  const av = marketAv(t);
-  const chip = flagshipChip(t);
-  const cc = camCaps(av), mc = memCaps(av);
-  const tech = ['tandem', 'ltpo', 'amoled', 'ips', 'tn'].find(k => av.ok(DISPLAY_TECH[k].tech));
-  const hz = [...REFRESH].reverse().find(r => av.ok(r.tech)).hz;
-  const multi = av.ok('cam_multi') && (cat === 'phone' || t >= 2020);
-  const subS = Math.max(0, cc.maxSensor - 3);
-  const ramIdx = RAM_OPTIONS.indexOf(mc.ram);
+const bestKey = (order, table, av) => [...order].reverse().find(k => av.ok(table[k].tech));
+function bestOS(av, touch) { return [...OS_ORDER].reverse().find(k => av.ok(OS[k].tech) && (touch || !OS[k].needsTouch)); }
+
+// ---- Flagship reference ("100 points" for each score) ----------------------------------
+function blankSpec(cat) {
   return {
-    cat, chip: { kind: 'vendor', id: chip.id },
-    display: { tech, size: +prefSize(cat, t).toFixed(1), ppi: Math.min(ppiCap(av), cat === 'tablet' ? 300 : 460), hz, fullview: av.ok('disp_fullview') },
-    cams: {
-      main: { sensor: cc.maxSensor, mp: bestMP(cc.maxSensor, cc.maxMP, av), ois: av.ok('cam_ois') },
-      ultra: { on: multi, sensor: subS, mp: bestMP(subS, Math.min(cc.maxMP, 12), av) },
-      tele: { on: multi && cat === 'phone', periscope: av.ok('cam_periscope'), sensor: subS, mp: bestMP(subS, Math.min(cc.maxMP, 12), av), ois: av.ok('cam_ois') },
-      front: { sensor: Math.min(2, cc.maxSensor), mp: bestMP(Math.min(2, cc.maxSensor), Math.min(cc.maxMP, 12), av) },
-    },
-    battery: { mah: Math.round(interp(CATS[cat].flagMah, t) / 50) * 50, chem: ['sic', 'hv', 'lipo', 'liion'].find(k => av.ok(CHEM[k].tech)),
-      charge: [...CHARGE].reverse().find(c => av.ok(c.tech)).w, wireless: av.ok('bat_wireless') },
-    memory: { ram: RAM_OPTIONS[Math.max(0, ramIdx - (t > 2012 ? 1 : 0))], storage: Math.max(16, mc.storage / 2), sd: false },
-    body: { mat: ['ti', 'steel', 'glass', 'alu', 'plastic'].find(k => av.ok(MATERIALS[k].tech)), water: ['ip68', 'ip67', 'ip53'].find(k => av.ok(WATER[k].tech)) },
-    feat: { fp: ['ud', 'side', 'rear', 'none'].find(k => av.ok(FINGERPRINT[k].tech)), face3d: av.ok('feat_face3d'), nfc: av.ok('feat_nfc'),
-      stereo: av.ok('feat_stereo'), jack: t < 2017 },
-    modem: 0, price: segBudget(cat, 'ultra', t),
+    cat, form: cat === 'tablet' ? 'slate' : 'candybar', name: '', color: BODY_COLORS[0], chip: { kind: 'vendor', id: '' }, modem: 0,
+    display: { tech: 'mono', size: 1.5, ppi: 90, hz: 60, fullview: false, touch: 'none' },
+    cams: { main: { on: false, sensor: 0, mp: 0.1, ois: false }, ultra: { on: false, sensor: 0, mp: 2 }, tele: { on: false, periscope: false, sensor: 0, mp: 2, ois: false },
+      front: { on: false, sensor: 0, mp: 0.3 }, flash: false },
+    battery: { mah: 600, chem: 'nimh', charge: 5, wireless: false },
+    memory: { ram: 1, storage: 1, sd: false },
+    body: { mat: 'plastic', water: 'none', antenna: 'external' },
+    feat: { fp: 'none', face3d: false, nfc: false, stereo: false, jack: false, poly: false, bt: false, mp3: false, wifi: false, gps: false },
+    os: 'basic', price: 199,
   };
 }
-// What a rival ships in a segment: the flagship, downgraded part by part.
-function rivalSpec(cat, seg, t) {
+// fill a spec with the best of everything `av` allows, scaled down by `lvl` (0 budget … 3 flagship)
+function buildSpec(cat, t, av, form, lvl) {
+  const s = blankSpec(cat);
+  s.form = cat === 'tablet' ? 'slate' : form;
+  const touchForm = !isKeypad(formOf(s));
+  const down = 3 - lvl;
+  const d = s.display;
+  const dIdx = DISPLAY_ORDER.indexOf(bestKey(DISPLAY_ORDER, DISPLAY_TECH, av));
+  d.tech = DISPLAY_ORDER[Math.max(0, dIdx - [2, 1, 1, 0][lvl])];
+  if (touchForm && DISPLAY_ORDER.indexOf(d.tech) < 2) d.tech = 'tft';
+  d.touch = touchForm ? (av.ok('disp_touchc') ? 'capacitive' : 'resistive') : 'none';
+  const [smin, smax] = sizeRange(av, s);
+  d.size = +clamp(prefSize(formOf(s), t) - [0.3, 0.15, 0.05, 0][lvl] * CATS[cat].budget, smin, smax).toFixed(1);
+  d.ppi = Math.round(ppiCap(av) * [0.62, 0.8, 0.92, 1][lvl] / 10) * 10;
+  if (lvl === 3) d.ppi = Math.min(ppiCap(av), cat === 'tablet' ? 300 : 460);
+  const hzI = REFRESH.findIndex(r => r.hz === [...REFRESH].reverse().find(r2 => av.ok(r2.tech)).hz);
+  d.hz = REFRESH[Math.max(0, hzI - Math.min(down, 2))].hz;
+  d.fullview = touchForm && av.ok('disp_fullview') && lvl >= 2;
+  const cc = camCaps(av), cams = s.cams;
+  if (cc.has) {
+    const ms = Math.max(0, cc.maxSensor - down);
+    cams.main = { on: true, sensor: ms, mp: lvl === 0 ? MP_OPTIONS[Math.max(0, MP_OPTIONS.indexOf(bestMP(ms, cc.maxMP, av)) - 1)] : bestMP(ms, cc.maxMP, av), ois: av.ok('cam_ois') && lvl >= 2 };
+    cams.flash = av.ok('cam_flash') && lvl >= 1;
+    if (av.ok('cam_front')) cams.front = { on: lvl >= 1 || t > 2012, sensor: Math.min(Math.max(0, lvl - 1), cc.maxSensor), mp: bestMP(Math.min(Math.max(0, lvl - 1), cc.maxSensor), Math.min(cc.maxMP, 8 + lvl * 2), av) };
+    const multi = av.ok('cam_multi') && (cat === 'phone' || t >= 2020) && lvl >= 2;
+    const subS = Math.max(0, cc.maxSensor - 3);
+    cams.ultra = { on: multi, sensor: subS, mp: bestMP(subS, Math.min(cc.maxMP, 12), av) };
+    cams.tele = { on: multi && cat === 'phone' && lvl >= 2, periscope: av.ok('cam_periscope') && lvl === 3, sensor: subS, mp: bestMP(subS, Math.min(cc.maxMP, 12), av), ois: av.ok('cam_ois') };
+  }
+  const b = s.battery;
+  b.chem = CHEM_ORDER[Math.max(0, CHEM_ORDER.indexOf(bestKey(CHEM_ORDER, CHEM, av)) - (lvl === 0 ? 1 : 0))];
+  b.mah = Math.min(mahCap(av, cat), Math.round(interp(CATS[cat].flagMah, t) * [1.05, 1.0, 0.97, 1][lvl] / 50) * 50);
+  const chI = CHARGE.findIndex(c => c.w === [...CHARGE].reverse().find(c2 => av.ok(c2.tech)).w);
+  b.charge = CHARGE[Math.max(0, chI - Math.min(down, 2))].w;
+  b.wireless = av.ok('bat_wireless') && lvl >= 2;
+  const mc = memCaps(av), ri = RAM_OPTIONS.indexOf(mc.ram), si = STORAGE_OPTIONS.indexOf(mc.storage);
+  s.memory = { ram: RAM_OPTIONS[Math.max(0, ri - down - (lvl === 3 && t > 2012 ? 1 : 0))], storage: STORAGE_OPTIONS[Math.max(0, si - [3, 2, 1, 1][lvl])], sd: av.ok('feat_sd') && lvl < 3 };
+  const body = s.body;
+  const matBest = ['ti', 'steel', 'glass', 'alu', 'plastic'].find(k => av.ok(MATERIALS[k].tech));
+  body.mat = lvl === 0 ? 'plastic' : lvl === 1 ? (t >= 2019 && av.ok('body_glass') ? 'glass' : t >= 2013 && av.ok('body_alu') ? 'alu' : 'plastic')
+    : lvl === 2 && (matBest === 'steel' || matBest === 'ti') ? 'glass' : matBest;
+  const water = ['ip68', 'ip67', 'ip53', 'none'].find(k => av.ok(WATER[k].tech));
+  body.water = lvl === 0 ? (av.ok('body_ip53') && t >= 2018 ? 'ip53' : 'none') : lvl === 1 ? (av.ok('body_ip67') && t >= 2020 ? 'ip67' : av.ok('body_ip53') ? 'ip53' : 'none') : water;
+  body.antenna = av.ok('body_intant') ? 'internal' : 'external';
+  const f = s.feat;
+  f.fp = lvl === 0 ? (t >= 2016 && av.ok('feat_fp') ? 'rear' : 'none') : lvl === 1 ? (t >= 2018 && av.ok('feat_fpside') ? 'side' : t >= 2015 && av.ok('feat_fp') ? 'rear' : 'none')
+    : ['ud', 'side', 'rear', 'none'].find(k => av.ok(FINGERPRINT[k].tech));
+  for (const [key, id, , , , since] of EXTRAS) {
+    const ok = av.ok(id) && (key !== 'face3d' || touchForm);
+    const age = t - since;
+    f[key] = ok && (lvl === 3 || age >= [4, 2, 0.5][lvl]) && (key !== 'face3d' || lvl === 3) && (key !== 'stereo' || lvl >= 2);
+  }
+  f.jack = t < [2040, 2020, 2017, 2017][lvl];
+  s.os = bestOS(av, d.touch !== 'none');
+  if (lvl === 0 && OS_ORDER.indexOf(s.os) > 1) s.os = OS_ORDER[OS_ORDER.indexOf(s.os) - 1];
+  if (OS[s.os].needsTouch && d.touch === 'none') s.os = bestOS(av, false);
+  return s;
+}
+function bestForm(av, t) {
+  let best = 'candybar', bv = -1;
+  for (const f of PHONE_FORMS) if (av.ok(FORMS[f].tech) && (f !== 'touch' || av.ok('disp_touchc'))) {
+    const v = formAppeal(f, t);
+    if (v > bv) { bv = v; best = f; }
+  }
+  return best;
+}
+function flagshipSpec(cat, t) {
   const av = marketAv(t);
-  const fs = JSON.parse(JSON.stringify(flagshipSpec(cat, t)));
-  if (seg === 'ultra') return fs;
-  const lvl = { budget: 0, mid: 1, premium: 2 }[seg];
+  if (cat === 'tablet') av.ok = id => id === 'form_tablet' || !id || t >= TECH[id].market;
+  const s = buildSpec(cat, t, av, cat === 'tablet' ? 'slate' : bestForm(av, t), 3);
+  s.chip = { kind: 'vendor', id: flagshipChip(t).id };
+  s.price = segBudget(cat, 'ultra', t);
+  return s;
+}
+// What a rival ships in a segment. av can include tech you licensed to the industry.
+function rivalSpec(cat, seg, t, rival, av) {
+  av = av || marketAv(t);
+  const lvl = SEGMENTS.indexOf(seg);
+  let form = cat === 'tablet' ? 'slate' : bestForm(av, t);
+  if (cat === 'phone') {
+    if (rival && rival.form && av.ok(FORMS[rival.form].tech) && formAppeal(rival.form, t) >= 0.8 * formAppeal(form, t)) form = rival.form;
+    if (form === 'touch' && seg === 'budget' && t < 2011.5) form = 'candybar';
+    if (form === 'touch' && seg === 'mid' && t < 2009) form = rival && rival.form && av.ok(FORMS[rival.form].tech) ? rival.form : 'candybar';
+    if (form === 'fold' && seg !== 'ultra') form = 'touch';
+  }
+  const s = buildSpec(cat, t, av, form, lvl);
   const chips = vendorChipsAvailable(t);
-  const best = list => list.sort((a, b) => b.cpu - a.cpu)[0];
   const flags = chips.filter(c => c.tier === 'flagship').sort((a, b) => b.cpu - a.cpu);
-  const chip = seg === 'premium' ? (flags[1] || flags[0]) : best(chips.filter(c => c.tier === seg)) || flags[0];
-  fs.chip = { kind: 'vendor', id: chip.id };
-  const since = id => t - TECH[id].market;
-  const d = fs.display;
-  if (seg === 'budget') d.tech = t >= 2019 ? 'amoled' : av.ok('disp_ips') ? 'ips' : 'tn';
-  else if (seg === 'mid') d.tech = t >= 2015 ? 'amoled' : av.ok('disp_ips') ? 'ips' : 'tn';
-  else d.tech = av.ok('disp_amoled') ? (av.ok('disp_ltpo') && since('disp_ltpo') > 2 ? 'ltpo' : 'amoled') : av.ok('disp_ips') ? 'ips' : 'tn';
-  d.size = +(d.size - [0.3, 0.1, 0][lvl] * CATS[cat].budget).toFixed(1);
-  d.ppi = Math.round(ppiCap(av) * [0.62, 0.8, 0.92][lvl] / 10) * 10;
-  const hzI = REFRESH.findIndex(r => r.hz === d.hz);
-  d.hz = REFRESH[Math.max(0, hzI - (2 - lvl))].hz;
-  d.fullview = av.ok('disp_fullview') && since('disp_fullview') >= [1.5, 0.7, 0][lvl];
-  const cc = camCaps(av), cams = fs.cams;
-  const ms = Math.max(0, cc.maxSensor - (3 - lvl));
-  cams.main = { sensor: ms, mp: bestMP(ms, cc.maxMP, av), ois: av.ok('cam_ois') && since('cam_ois') >= [99, 4, 0][lvl] };
-  const multi = av.ok('cam_multi') ? since('cam_multi') : -1;
-  cams.ultra.on = cams.ultra.on && multi >= [2.5, 1.5, 0][lvl];
-  cams.tele.on = cams.tele.on && seg === 'premium' && multi >= 1;
-  cams.tele.periscope = false;
-  cams.front = { sensor: Math.min(lvl, cc.maxSensor), mp: bestMP(Math.min(lvl, cc.maxSensor), Math.min(cc.maxMP, 8 + lvl * 2), av) };
-  const b = fs.battery;
-  b.mah = Math.round(b.mah * [1.05, 1.0, 0.97][lvl] / 50) * 50;
-  if (seg === 'budget') b.chem = ({ sic: 'hv', hv: 'lipo', lipo: 'liion', liion: 'liion' })[b.chem];
-  const chI = CHARGE.findIndex(c => c.w === b.charge);
-  b.charge = CHARGE[Math.max(0, chI - (2 - lvl))].w;
-  b.wireless = b.wireless && seg === 'premium';
-  const mc = memCaps(av), ri = RAM_OPTIONS.indexOf(mc.ram);
-  fs.memory = { ram: RAM_OPTIONS[Math.max(0, ri - (3 - lvl))], storage: Math.max(4, mc.storage / [8, 4, 2][lvl]), sd: seg !== 'premium' };
-  const body = fs.body;
-  if (seg === 'budget') body.mat = 'plastic';
-  else if (seg === 'mid') body.mat = t >= 2019 && av.ok('body_glass') ? 'glass' : t >= 2013 && av.ok('body_alu') ? 'alu' : 'plastic';
-  else if (body.mat === 'steel' || body.mat === 'ti') body.mat = 'glass';
-  body.water = seg === 'budget' ? (t >= 2018 ? 'ip53' : 'none') : seg === 'mid' ? (t >= 2020 && av.ok('body_ip67') ? 'ip67' : 'ip53') : body.water;
-  const f = fs.feat;
-  if (seg === 'budget') f.fp = t >= 2016 && av.ok('feat_fp') ? 'rear' : 'none';
-  if (seg === 'mid') f.fp = t >= 2018 && av.ok('feat_fpside') ? 'side' : t >= 2015 && av.ok('feat_fp') ? 'rear' : 'none';
-  f.face3d = false;
-  f.nfc = av.ok('feat_nfc') && t >= [2018, 2014, 0][lvl];
-  f.stereo = f.stereo && seg === 'premium';
-  f.jack = t < [2040, 2020, 2017][lvl];
-  return fs;
+  const pick = seg === 'ultra' ? flags[0] : seg === 'premium' ? (flags[1] || flags[0]) : chips.filter(c => c.tier === seg).sort((a, b) => b.cpu - a.cpu)[0] || flags[0];
+  s.chip = { kind: 'vendor', id: pick.id };
+  return s;
 }
 const _refCache = {};
 function getRefs(cat, t) {
@@ -520,15 +630,20 @@ function getRefs(cat, t) {
 // Each sub-score is 100 = "matches today's flagship". Above 100 you are ahead of the market.
 function subscores(raw, cat, t) {
   const R = getRefs(cat, t);
-  const cpuN = 100 * raw.cpu / R.cpu, gpuN = 100 * raw.gpu / R.gpu;
-  const ramN = 100 * Math.log2(raw.ram / 64) / Math.log2(R.ram / 64);
-  const perf = R.ai > 0 ? 0.42 * cpuN + 0.33 * gpuN + 0.10 * (100 * raw.ai / R.ai) + 0.15 * ramN : 0.47 * cpuN + 0.38 * gpuN + 0.15 * ramN;
-  const ispF = r => (r > 0 ? 0.75 + 0.25 * Math.min(1.4, r) : 0.6);
-  const cam = 100 * raw.cam * ispF(raw.isp / R.isp) / R.cam;
-  const disp = 100 * raw.disp / R.disp * (0.45 + 0.55 * sizeScore(cat, raw.size, t));
+  const cpuN = 100 * raw.cpu / R.cpu;
+  const ramN = 100 * Math.log2(raw.ram / 0.5) / Math.log2(R.ram / 0.5);
+  let perf;
+  if (R.gpu > 0 && R.ai > 0) perf = 0.42 * cpuN + 0.33 * (100 * raw.gpu / R.gpu) + 0.10 * (100 * raw.ai / R.ai) + 0.15 * ramN;
+  else if (R.gpu > 0) perf = 0.47 * cpuN + 0.38 * (100 * raw.gpu / R.gpu) + 0.15 * ramN;
+  else perf = 0.75 * cpuN + 0.25 * ramN + (raw.gpu > 0 ? 8 : 0);
+  const ispR = R.isp > 0 ? raw.isp / R.isp : 1;
+  const ispF = raw.isp > 0 || R.isp === 0 ? 0.75 + 0.25 * Math.min(1.4, ispR) : 0.6;
+  const cam = R.cam > 0 ? 100 * raw.cam * ispF / R.cam : 100 + (raw.cam > 0 ? 15 : 0);
+  const disp = 100 * raw.disp / R.disp * (0.45 + 0.55 * sizeScore(raw.form || 'touch', raw.size, t));
   const batt = 85 * Math.pow(raw.hours / R.hours, 0.85) + 15 * Math.pow(raw.charge / R.charge, 0.4);
-  const design = 100 * raw.design / R.design;
-  const feat = 100 * raw.feat / R.feat - 25 * Math.max(0, R.modem - raw.modem);
+  const appeal = formAppeal(raw.form || 'touch', t) / formAppeal(R.form || 'touch', t);
+  const design = 100 * raw.design / R.design * appeal;
+  const feat = 100 * raw.feat / R.feat - 15 * Math.max(0, R.modem - raw.modem);
   const s = { perf, cam, disp, batt, design, feat };
   for (const k in s) s[k] = Math.max(0, s[k]);
   return s;

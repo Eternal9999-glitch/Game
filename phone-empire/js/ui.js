@@ -8,7 +8,7 @@ const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const VIEWS = {};          // id -> {name, icon, render(el), live?}
-const VIEW_ORDER = ['hq', 'phonelab', 'chiplab', 'factories', 'research', 'market', 'finance'];
+const VIEW_ORDER = ['hq', 'phonelab', 'chiplab', 'research', 'production', 'factories', 'market', 'investors', 'finance'];
 let currentView = 'hq';
 let pointerDown = false;
 document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
@@ -40,11 +40,12 @@ function renderCurrent(force) {
 function renderNav() {
   const nav = $('#nav');
   const freeSlots = S ? researchSlots() - S.research.length : 0;
-  const badges = { research: freeSlots > 0 && TECHS.some(tc => techState(tc) === 'available') ? freeSlots : 0 };
+  const badges = { research: freeSlots > 0 && TECHS.some(tc => techState(tc) === 'available') ? freeSlots : 0,
+    investors: S && S.funding.offer ? '!' : 0, factories: S ? S.offers.length : 0 };
   nav.innerHTML = VIEW_ORDER.map((id, i) => {
     const v = VIEWS[id];
     const b = badges[id] ? `<span class="badge">${badges[id]}</span>` : '';
-    return (i === 3 ? '<div class="sep"></div>' : '') +
+    return (i === 4 || i === 6 ? '<div class="sep"></div>' : '') +
       `<button data-view="${id}" class="${id === currentView ? 'on' : ''}"><span class="ico">${v.icon}</span>${v.name}${b}</button>`;
   }).join('');
   $$('button', nav).forEach(b => { b.onclick = () => showView(b.dataset.view); });
@@ -66,6 +67,7 @@ function renderTop() {
     [`<b>${fmtNum(units)}</b>`, 'Demand / mo'],
     [`<b>${fmtPct(S.aware)}</b>`, 'Brand awareness'],
     [`<b>${S.rep.toFixed(1)}</b>`, 'Reputation'],
+    [`<b>${fmtPct(S.own, 0)}</b>`, 'You own'],
   ].map(([v, l]) => `<div class="stat">${v}<span>${l}</span></div>`).join('');
 }
 
@@ -121,7 +123,8 @@ function segBtn(name, options, value, attrs) {
 function lockReason(id) {
   if (!id) return '';
   const tc = TECH[id];
-  return `${tc.name}: industry standard ${dateLabel(tc.market)}${S.researched[id] ? ' · researched – needs your own ' + FACTORY_TYPES[TECH_CATS[tc.cat].factory]?.name : ' · research it to get it early'}`;
+  if (S.researched[id]) return `${tc.name}: researched – needs your own ${FACTORY_TYPES[TECH_CATS[tc.cat].factory]?.name || 'factory'} until ${dateLabel(tc.market)}`;
+  return `${tc.name}: research it first (🔬 Research)`;
 }
 
 // ---- charts ---------------------------------------------------------------------------

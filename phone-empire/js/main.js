@@ -8,30 +8,35 @@ let lastFrame = 0, dayAcc = 0, lastRender = 0, lastViewRender = 0, dirty = false
 
 function startScreen() {
   const canContinue = hasSave();
-  let era = 2008, cash = 2e6;
+  let era = 1996, style = 'brand', cash = 10e3;
   modal(`
-    <div class="start-hero"><div style="font-size:44px">📱</div><div class="big">Phone Empire Tycoon</div>
-      <div class="dim">Engineer devices part by part. Design your own chips. Build the factories. Own the stack.</div></div>
+    <div class="start-hero"><div style="font-size:40px">📱</div><div class="big">Phone Empire Tycoon</div>
+      <div class="dim">Start with ${fmtMoney(10e3)} and a sketch. Win investors, engineer phones part by part, build the factories, own the stack.</div></div>
     <div class="field"><span class="lbl">Company name</span><input type="text" id="coName" value="Nimbus Devices" maxlength="28"></div>
+    <h3>Playstyle</h3>
+    <div class="style-pick" id="styleC">${Object.entries(PLAYSTYLES).map(([k, p]) => `<button data-style="${k}" class="${k === style ? 'on' : ''}">
+      <span class="big">${p.icon}</span><b>${p.name}</b><span class="tiny dim">${p.tagline}</span><ul>${p.perks.map(x => `<li>${x}</li>`).join('')}</ul></button>`).join('')}</div>
     <h3>Starting era</h3>
     <div class="choice" id="eraC">
-      <button data-era="2008" class="on"><b>2008 · Dawn</b><span>Touchscreens are new. 65nm chips, 3 MP cameras, 3G.</span></button>
-      <button data-era="2014"><b>2014 · Boom</b><span>Huge market, 28nm, full-HD screens, 4G.</span></button>
-      <button data-era="2020"><b>2020 · Modern</b><span>7nm, 5G arriving, camera wars, a pandemic.</span></button>
+      <button data-era="1996" class="on"><b>1996 · Flip phones</b><span>Monochrome screens, 2G, NiMH batteries. No cameras yet.</span></button>
+      <button data-era="2007"><b>2007 · Smartphones</b><span>Touchscreens arrive. 3G, megapixel cameras, the app era begins.</span></button>
+      <button data-era="2016"><b>2016 · Modern</b><span>A crowded smartphone market, 14nm chips, the camera wars.</span></button>
     </div>
-    <h3>Starting capital</h3>
+    <h3>Starting money</h3>
     <div class="choice" id="cashC">
-      <button data-cash="5000000"><b>$5M · Funded</b><span>Room for mistakes.</span></button>
-      <button data-cash="2000000" class="on"><b>$2M · Startup</b><span>The intended experience.</span></button>
-      <button data-cash="750000"><b>$750k · Garage</b><span>Every dollar counts.</span></button>
+      <button data-cash="10000" class="on"><b>$10k · Garage</b><span>The intended experience: raise money to grow.</span></button>
+      <button data-cash="50000"><b>$50k · Savings</b><span>A little more room for mistakes.</span></button>
+      <button data-cash="250000"><b>$250k · Backed</b><span>Skip the scrappy part.</span></button>
     </div>
     <div class="actions">${canContinue ? '<button class="btn" id="contBtn">Continue saved game</button>' : ''}<button class="btn primary lg" id="newBtn">Found company →</button></div>
   `, d => {
     $('#modal').dataset.sticky = '1';
-    $$('#eraC button', d).forEach(b => { b.onclick = () => { era = +b.dataset.era; $$('#eraC button', d).forEach(x => x.classList.toggle('on', x === b)); }; });
-    $$('#cashC button', d).forEach(b => { b.onclick = () => { cash = +b.dataset.cash; $$('#cashC button', d).forEach(x => x.classList.toggle('on', x === b)); }; });
+    const group = (sel, attr, set) => $$(sel + ' button', d).forEach(b => { b.onclick = () => { set(b.dataset[attr]); $$(sel + ' button', d).forEach(x => x.classList.toggle('on', x === b)); }; });
+    group('#eraC', 'era', v => { era = +v; });
+    group('#styleC', 'style', v => { style = v; });
+    group('#cashC', 'cash', v => { cash = +v; });
     $('#newBtn', d).onclick = () => {
-      newGame({ company: ($('#coName', d).value || 'Nimbus Devices').trim(), start: era, cash });
+      newGame({ company: ($('#coName', d).value || 'Nimbus Devices').trim(), start: era, cash, playstyle: style });
       enterGame();
       howToPlay();
     };
@@ -46,17 +51,18 @@ function enterGame() {
   renderTop();
 }
 function howToPlay() {
-  modal(`<h2>Welcome, CEO 👋</h2>
+  const ps = PLAYSTYLES[S.playstyle];
+  modal(`<h2>Welcome, founder 👋</h2>
     <div class="small" style="line-height:1.6">
-      <p>It's <b>${dateLabel(now())}</b>. You have <b>${fmtMoney(S.cash)}</b> and an empty office. Your rivals already sell millions of devices.</p>
-      <p class="mt-s"><b>Your first moves:</b></p>
-      <ol style="margin-left:20px">
-        <li>Open the <b>📱 Phone Lab</b>. Pick an off-the-shelf chip and parts, hit <b>💡 Suggest price</b>, and start development.</li>
-        <li>In <b>💰 Finance</b>, set a marketing budget — nobody buys a brand they've never heard of.</li>
-        <li>Build an <b>🏭 Assembly Plant</b> early: it pays for itself fast.</li>
-        <li>When you have cash, design a chip in the <b>💠 Chip Lab</b>, research exclusive tech, and build component factories.</li>
+      <p>It's <b>${dateLabel(now())}</b>. You have <b>${fmtMoney(S.cash)}</b>, a garage, and a plan. Playstyle: <b>${ps.icon} ${ps.name}</b> – ${ps.tagline}</p>
+      <ol style="margin:8px 0 0 20px">
+        <li><b>📱 Phone Lab</b>: design a phone around the 3D model. Locked parts show which research unlocks them.</li>
+        <li>Hit <b>🧪 Build prototype</b> – cheap, and investors want to hold something.</li>
+        <li><b>💼 Investors</b>: pitch friends & family, then angels with your prototype. Later rounds need real revenue.</li>
+        <li><b>🚀 Develop & launch</b>, then order a production run from a contract manufacturer (<b>📦 Production</b>).</li>
+        <li>Spend on <b>marketing</b> (💰 Finance), keep <b>researching</b> (🔬) so your phones don't fall behind, and build your own <b>factories</b> (🏭) when the volume is there.</li>
       </ol>
-      <p class="mt-s dim">Time is paused. Use <b>▶</b> (or keys <b>1–3</b>, <b>Space</b> to pause) to run the clock. The game autosaves every month.</p>
+      <p class="mt-s dim">Time is paused. Press <b>▶</b> (or keys <b>1–3</b>, <b>Space</b> to pause). The game autosaves every month.</p>
     </div>
     <div class="actions"><button class="btn primary" data-x>Let's go</button></div>`, d => { $('[data-x]', d).onclick = closeModal; });
 }

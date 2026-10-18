@@ -1,10 +1,10 @@
 # 🎮 Game
 
-Browser games, each playable straight from its HTML file — no install, no build.
+Browser games, each playable straight from its HTML file — no install, no build. (Phone Empire is a folder: download it whole.)
 
 | Game | Play | What it is |
 |---|---|---|
-| 📱 **Phone Empire Tycoon** | [`phone-empire/index.html`](phone-empire/index.html) · [docs](phone-empire/README.md) | Build a device empire from 2008 onward: engineer phones and tablets part by part, floorplan your own chips, build factories for every component, and out-research your rivals. |
+| 📱 **Phone Empire Tycoon** | [`phone-empire/index.html`](phone-empire/index.html) · [docs](phone-empire/README.md) | Start in 1996 with $10k: raise money from investors, design phones part by part around a live 3D model, research ~160 upgrades, floorplan your own chips, and build phones with contract manufacturers or your own factories. Three playstyles. |
 | 🧊 **VoxelVerse** | [`index.html`](index.html) | Third-person multiplayer voxel sandbox (details below). |
 
 ---
