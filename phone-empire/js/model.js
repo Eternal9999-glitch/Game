@@ -21,7 +21,7 @@ function sizeScore(form, size, t) {
   return Math.exp(-(d / s) * (d / s));
 }
 const formAppeal = (form, t) => (t < FORMS[form].appeal[0][0] - 0.01 ? FORMS[form].appeal[0][1] * 0.8 : interp(FORMS[form].appeal, t));
-function marketSize(cat, t) { return logInterp(MARKET_SIZE[cat], t) * eventMul('demand', t); }
+function marketSize(cat, t) { return logInterp(MARKET_SIZE[cat], t) * eventMul('demand', t) * trendDemand(t); }
 function segSplit(t) { return interp(SEG_SPLIT, t); }
 const segBudget = (cat, seg, t) => interp(SEG_BUDGET[cat], t)[SEGMENTS.indexOf(seg)];
 function regionShares(t) {
@@ -996,11 +996,50 @@ function subscores(raw, cat, t) {
   for (const k in s) s[k] = Math.max(0, s[k]);
   return s;
 }
+// ---- Market trends: for a while, buyers care more about something --------------------------
+// k: category → extra weight at the peak, segs: which buyers (everyone if omitted), demand: market boost
+const TRENDS = [
+  { id: 'status', title: 'Executive status symbol', start: 1977.5, end: 1980.5, k: { design: 0.5 }, segs: ['premium', 'ultra'], desc: 'A phone in the car is the ultimate executive accessory: looks matter.' },
+  { id: 'yuppie', title: 'Yuppie boom', start: 1985, end: 1988.5, k: { design: 0.45, net: 0.25 }, segs: ['premium', 'ultra'], demand: 1.06, desc: 'Brick phones are the power accessory of Wall Street: style and reliable coverage sell.' },
+  { id: 'pocket', title: 'Pocket-size craze', start: 1993, end: 1996, k: { design: 0.5, batt: 0.2 }, desc: 'Everyone wants a phone that disappears into a pocket.' },
+  { id: 'snake', title: 'Snake on every phone', start: 1998, end: 2000.5, k: { feat: 0.45 }, segs: ['budget', 'mid'], desc: 'Built-in games are the hit of the year.' },
+  { id: 'sms', title: 'Texting boom', start: 1999.5, end: 2002.5, k: { feat: 0.35, batt: 0.2 }, desc: 'Teenagers send hundreds of texts a day: keyboards, features and stamina sell.' },
+  { id: 'color', title: 'Color screen fever', start: 2002, end: 2004, k: { disp: 0.5 }, desc: 'Monochrome screens suddenly look ancient.' },
+  { id: 'camera', title: 'Camera phone boom', start: 2003.5, end: 2006, k: { cam: 0.6 }, desc: 'Snap, send, share: everyone wants a camera in their phone.' },
+  { id: 'music', title: 'Mobile music craze', start: 2005.5, end: 2007.5, k: { feat: 0.35, perf: 0.15, batt: 0.2 }, desc: 'Music phones take on MP3 players: storage, features and battery life.' },
+  { id: 'apps', title: 'App store gold rush', start: 2008.5, end: 2011, k: { perf: 0.4, feat: 0.3, disp: 0.15 }, segs: ['mid', 'premium', 'ultra'], desc: 'Apps for everything: fast phones with big touchscreens win.' },
+  { id: 'gaming', title: 'Mobile gaming explosion', start: 2010.5, end: 2013, k: { perf: 0.55, disp: 0.25, batt: 0.15 }, demand: 1.04, desc: 'Casual hits keep the whole world tapping: performance and screens sell phones.' },
+  { id: 'phablet', title: 'Phablet boom', start: 2012.5, end: 2015, k: { disp: 0.45, batt: 0.2 }, desc: 'Bigger screens are suddenly what everybody wants.' },
+  { id: 'selfie', title: 'Selfie craze', start: 2013.5, end: 2016, k: { cam: 0.45 }, segs: ['budget', 'mid', 'premium'], desc: 'Front cameras and photo quality are the talk of social media.' },
+  { id: 'arcraze', title: 'AR game craze', start: 2016.5, end: 2017.6, k: { batt: 0.4, perf: 0.25, net: 0.2 }, desc: 'Millions walk the streets catching monsters – batteries drain fast.' },
+  { id: 'esports', title: 'Mobile esports', start: 2018, end: 2021, k: { perf: 0.5, disp: 0.3, batt: 0.2 }, demand: 1.03, desc: 'Battle royales go mobile: high frame rates and long sessions.' },
+  { id: '5g', title: '5G hype', start: 2019.5, end: 2021.5, k: { net: 0.6 }, segs: ['mid', 'premium', 'ultra'], desc: 'Carriers market 5G everywhere: buyers want to be future-proof.' },
+  { id: 'wfh', title: 'Work & school from home', start: 2020.2, end: 2021.8, k: { cam: 0.3, batt: 0.25, disp: 0.15 }, desc: 'Video calls all day: front cameras and stamina matter.' },
+  { id: 'creator', title: 'Short-video creator boom', start: 2021.5, end: 2024, k: { cam: 0.45, disp: 0.2 }, desc: 'Everyone is a creator: video quality sells phones.' },
+  { id: 'ai', title: 'AI phone hype', start: 2023.8, end: 2026.5, k: { perf: 0.5, feat: 0.3 }, segs: ['premium', 'ultra'], desc: 'On-device AI is the new must-have: buyers want NPUs and smart features.' },
+  { id: 'longevity', title: 'Battery anxiety', start: 2025, end: 2027.5, k: { batt: 0.5 }, desc: 'Buyers keep phones longer and want them to last all day – and for years.' },
+  { id: 'foldfash', title: 'Foldable fashion', start: 2028.5, end: 2031, k: { design: 0.45, disp: 0.25 }, segs: ['premium', 'ultra'], desc: 'Folding phones become the style statement of the decade.' },
+  { id: 'satnet', title: 'Satellite everywhere', start: 2031.5, end: 2033.5, k: { net: 0.5 }, desc: 'Direct-to-phone satellites make coverage the selling point.' },
+  { id: 'holo', title: 'Holo-gaming wave', start: 2034, end: 2036.5, k: { perf: 0.5, disp: 0.35 }, demand: 1.03, desc: 'Glasses-free 3D games: the fastest chips and screens win.' },
+  { id: 'health', title: 'Health-tracking boom', start: 2037, end: 2039.5, k: { feat: 0.45, batt: 0.2 }, desc: 'Phones become personal doctors: sensors and features sell.' },
+  { id: 'lens', title: 'Pro-camera arms race', start: 2040, end: 2042.5, k: { cam: 0.55 }, segs: ['mid', 'premium', 'ultra'], desc: 'Phones replace the last dedicated cameras.' },
+  { id: 'light', title: 'Ultra-light fashion', start: 2043, end: 2045.5, k: { design: 0.5 }, desc: 'The lightest, thinnest phone is what everybody wants.' },
+];
+const easeEdge = x => clamp(x, 0, 1) * clamp(x, 0, 1) * (3 - 2 * clamp(x, 0, 1));
+const trendLevel = (tr, t) => easeEdge((t - tr.start) / 0.5) * easeEdge((tr.end - t) / 0.5);   // eases in and out over ~6 months
+function activeTrends(t) { return TRENDS.filter(tr => t > tr.start && t < tr.end); }
+// extra weight a trend gives one category for one segment right now (0 = none)
+function trendBoost(k, seg, t) {
+  let b = 0;
+  for (const tr of activeTrends(t)) if (tr.k[k] && (!tr.segs || tr.segs.includes(seg))) b += tr.k[k] * trendLevel(tr, t);
+  return b;
+}
+const trendDemand = t => activeTrends(t).reduce((a, tr) => a * (1 + ((tr.demand || 1) - 1) * trendLevel(tr, t)), 1);
 function segWeights(seg, t) {
   const w = interp(ERA_WEIGHTS, t), tilt = SEG_INFO[seg].tilt;
   let tot = 0;
   const out = {};
-  for (const k in w) { out[k] = w[k] * tilt[k]; tot += out[k]; }
+  for (const k in w) { out[k] = w[k] * tilt[k] * (1 + trendBoost(k, seg, t)); tot += out[k]; }
   for (const k in out) out[k] /= tot;
   return out;
 }

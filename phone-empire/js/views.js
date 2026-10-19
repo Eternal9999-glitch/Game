@@ -22,8 +22,20 @@ function lineStatus(p) {
   if (p.discontinued) return '<span class="faint">ended</span>';
   if (!p.lineMaker) return `<span class="bad">${esc(p.lineMsg || 'no manufacturer')}</span>`;
   if (S.day < p.lineReady) return `<span class="warn">setting up · ${p.lineReady - S.day} d</span>`;
+  if (p.partShort) return `<span class="bad">waiting for parts: ${esc(p.partShort)}</span>`;
   if (p.cashStalled) return '<span class="bad">waiting for cash</span>';
   return `<span class="good">running</span>`;
+}
+function trendNote(tr, t) {
+  const lv = trendLevel(tr, t);
+  return `<div class="note">📈 <b>${esc(tr.title)}</b> — ${esc(tr.desc)} Buyers${tr.segs ? ' (' + tr.segs.map(sg => SEG_INFO[sg].name).join(', ') + ')' : ''} weigh ${Object.entries(tr.k).map(([k, v]) => `${SUB_LABELS[k]} +${Math.round(v * lv * 100)}%`).join(', ')}${tr.demand ? ` · market +${Math.round((tr.demand - 1) * lv * 100)}%` : ''}. Until ${dateLabel(tr.end)}${lv < 0.99 ? (t < (tr.start + tr.end) / 2 ? ' · building' : ' · fading') : ''}.</div>`;
+}
+function partLineStatus(r) {
+  if (r.status !== 'ready') return `<span class="warn">${r.stats ? 'taping out' : 'engineering'} · ${Math.max(0, r.readyDay - S.day)} d</span>`;
+  if (r.line.mode === 'off') return '<span class="faint">stopped</span>';
+  if (r.lineMsg) return `<span class="bad">${esc(r.lineMsg)}</span>`;
+  if (r.madeMonth || r.madeLast) return `<span class="good">running${r.lastSrc ? ' · ' + SRC_NAME[r.lastSrc] : ''}</span>`;
+  return '<span class="faint">idle – nothing needs it</span>';
 }
 
 // ---- HQ -------------------------------------------------------------------------------
@@ -47,6 +59,7 @@ const HQ = {
         <div class="kpi"><div class="l">Brand</div><div class="v">${fmtPct(S.aware)}</div><div class="d dim">awareness · reputation ${S.rep.toFixed(1)}/10 · share ${fmtPct(phoneShare(), 2)}</div></div>
       </div>
       ${ev.length ? `<div class="mt">${ev.map(e => `<div class="note warn">🌍 <b>${e.title}</b> — ${e.desc} (until ${dateLabel(e.end)})</div>`).join('')}</div>` : ''}
+      ${activeTrends(t).length ? `<div class="mt">${activeTrends(t).map(tr => trendNote(tr, t)).join('')}</div>` : ''}
       <div class="card mt">
         <h2>Product line <span class="sub">change prices any time · production lines in 📦 Production</span></h2>
         ${prods.length ? this.products(prods) : `<div class="note">No devices yet. Design one in the <b>📱 Phone Lab</b>.
@@ -81,13 +94,13 @@ const HQ = {
         return `<tr data-pid="${p.id}">
           <td><b>${FORMS[formOf(p.spec)].icon} ${esc(p.name)}</b><div class="tiny faint">${FORMS[formOf(p.spec)].name} · ${SEG_INFO[seg].name}</div></td>
           <td>${statusTag(p)} ${flags.join(' ')}</td>
-          <td class="num"><input type="number" data-price value="${p.price}" min="9" max="19999" step="10" style="width:80px"></td>
+          <td class="num"><input type="number" data-price value="${p.price}" min="9" max="19999" step="10" style="width:80px">${(() => { const fp = p.q ? fairPrice(p.spec.cat, p.q.mid, playerBrandPower()) : null; return fp ? `<div class="tiny ${p.price > fp * 1.1 ? 'bad' : 'faint'}" title="What buyers think a phone this good is worth from your brand. Much above it, sales collapse.">fair ~${fmtMoney(fp, 0)}</div>` : ''; })()}</td>
           <td class="num">${fmtNum(p.inventory)}</td>
           <td class="num">${p.status === 'active' ? fmtNum(p.demand || 0) : '~' + fmtNum(p.forecast || 0)}</td>
           <td class="num">${fmtNum(p.soldLastMonth || 0)}</td>
           <td class="num">${cost ? fmtMoney(cost) : '—'}</td>
           <td class="num ${margin >= 0 ? 'good' : 'bad'}">${cost ? fmtMoney(margin) : '—'}</td>
-          <td>${reviewTag(p.review)}</td>
+          <td title="${esc((p.outlets || []).map(o => `${o.name}: ${o.score.toFixed(1)} (+${REVIEW_GOOD[o.best] || '?'}, −${REVIEW_BAD[o.worst] || '?'})`).join('\n'))}">${reviewTag(p.review)}${p.user != null ? `<div class="tiny ${p.user < p.review - 0.8 ? 'bad' : 'faint'}">owners ${p.user.toFixed(1)}</div>` : ''}</td>
           <td class="num">${p.q ? Math.round(p.q[seg]) : '—'}</td>
           <td class="right nowrap"><button class="btn sm" data-detail>Details</button>${p.discontinued ? '' : ' <button class="btn sm danger" data-disc>End</button>'}</td>
         </tr>`;
@@ -119,6 +132,8 @@ function productDetail(p) {
   const ev = pc.ev, b = ev.bench;
   modal(`<h2>${FORMS[formOf(p.spec)].icon} ${esc(p.name)}</h2>
     <div class="row wrap small dim">${reviewTag(p.review)} <span>${p.notes.map(esc).join(' · ') || 'No standout strengths or weaknesses.'}</span></div>
+    ${(p.outlets || []).length ? `<div class="review-panel mt-s">${p.outlets.map(o => `<div class="rv-o"><b>${o.score.toFixed(1)}</b><span>${esc(o.name)}</span><span class="tiny faint">+ ${esc(REVIEW_GOOD[o.best] || '')}<br>− ${esc(REVIEW_BAD[o.worst] || '')}</span></div>`).join('')}
+      ${p.user != null ? `<div class="rv-o owners"><b>${p.user.toFixed(1)}</b><span>Owners</span><span class="tiny faint">drifts with value for money and reliability</span></div>` : ''}</div>` : ''}
     <div class="grid g2 mt">
       <div><h3>Scores today</h3>${p.subs ? scoreBars(p.subs) : ''}
         <h3>Specs</h3><div class="spec-list small">
@@ -180,6 +195,7 @@ const Production = {
           }).join('')}</tbody></table></div>
           <div class="tiny faint mt-s">"Match demand" keeps about three weeks of stock. A new line takes the manufacturer's lead time to set up; switching makers starts over.</div>` : '<div class="dim">Launch a device first (📱 Phone Lab).</div>'}
       </div>
+      ${this.partsCard()}
       <div class="grid g2 mt">
         <div class="card"><h2>🏭 Contract manufacturers</h2>
           <div class="scroll-x"><table class="tbl"><thead><tr><th>Company</th><th class="num">Fee</th><th class="num">Capacity/mo</th><th class="num">Lead</th><th class="num">Line fee/mo</th><th>Builds up to</th></tr></thead><tbody>
@@ -192,11 +208,20 @@ const Production = {
           <div class="tiny faint mt-s">Fees multiply the era's standard assembly price. Every line you run costs its monthly line fee.</div>
         </div>
         <div class="card"><h2>🔩 Where parts come from</h2>
-          <div class="small dim">Standard parts are bought from suppliers at a 45% markup. Your own designs (🛠️ Parts Lab) are built by contract part makers at cost +22% – or at cost in your own plant, which is also the only way to use exclusive tech.</div>
+          <div class="small dim">Standard parts are bought from suppliers at a 45% markup as each phone is built. Your own designs (🛠️ Parts Lab) are produced into stock first: by contract part makers at cost +22%, or at cost in your own plant (limited capacity) – the only way to use exclusive tech.</div>
           <table class="tbl mt-s">${PART_TYPES.map(k => `<tr><td>${PART_INFO[k].icon} ${PART_INFO[k].name}</td><td>${factoryActive(k) ? `<span class="tag good">own plant · ${fmtNum(factoryPool(k))}/mo</span>` : '<span class="tag">contract makers</span>'}</td><td class="num">${S.designs.filter(d => d.type === k).length} designs</td></tr>`).join('')}</table>
         </div>
       </div>`;
     el.onchange = e => {
+      const pr = e.target.closest('[data-rid]');
+      if (pr) {
+        const r = ensureLine(partRecordById(pr.dataset.rid));
+        if (e.target.dataset.psrc != null) r.line.src = e.target.value;
+        if (e.target.dataset.pmode != null) { r.line.mode = e.target.value; if (r.line.mode === 'manual' && !r.line.rate) r.line.rate = Math.max(100, Math.round((r.usedLast || 1000) / 100) * 100); }
+        if (e.target.dataset.prate != null) r.line.rate = Math.max(0, Math.round(+e.target.value) || 0);
+        renderCurrent(true);
+        return;
+      }
       const row = e.target.closest('[data-pid]');
       if (!row) return;
       const p = S.products.find(x => x.id === row.dataset.pid);
@@ -207,6 +232,37 @@ const Production = {
     };
   },
 };
+Object.assign(Production, {
+  // your own parts and processors: produced into stock, drawn by the phone lines
+  partsCard() {
+    const t = now();
+    const recs = partRecords().map(ensureLine);
+    if (!recs.length) return `<div class="card mt"><h2>🔩 Parts & chips in stock</h2><div class="dim small">Standard parts and vendor chips are bought as each phone is built. Parts and processors you design in the 🛠️ Parts Lab must be produced into stock first – they show up here.</div></div>`;
+    const need = partNeeds();
+    const used = r => (need[r.id] || 0) > 0;
+    recs.sort((a, b) => used(b) - used(a) || (b.stock || 0) - (a.stock || 0));
+    const icon = r => (r.stats ? '💠' : PART_INFO[r.type].icon);
+    return `<div class="card mt"><h2>🔩 Parts & chips in stock <span class="sub">foundry allocation ${fmtNum(foundryAlloc())} wafers/mo</span></h2>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Part</th><th>Made at</th><th>Output</th><th>Status</th><th class="num">Stock</th><th class="num">In transit</th><th class="num">Phones use/mo</th><th class="num">Unit cost</th></tr></thead><tbody>
+      ${recs.map(r => {
+        const srcAll = r.stats ? ['fab', 'foundry'] : ['own', 'contract'];
+        const avail = lineSources(Object.assign({}, r, { line: { src: 'auto' } }));
+        const rate = (need[r.id] || 0) * 30, cover = rate > 1 ? r.stock / rate * 30 : null;
+        const cost = r.stockCost || (avail.length ? partUnitCost(r, avail[0], t) : 0);
+        return `<tr data-rid="${r.id}"><td>${icon(r)} <b>${esc(r.name)}</b><div class="tiny faint">${r.stats ? nodeLabel(r.stats.nm) + ' processor' : PART_INFO[r.type].name}</div></td>
+          <td><select data-psrc class="small"><option value="auto" ${r.line.src === 'auto' ? 'selected' : ''}>Auto${avail.length ? ' (' + SRC_NAME[avail[0]] + ' first)' : ''}</option>
+            ${srcAll.map(x => `<option value="${x}" ${r.line.src === x ? 'selected' : ''} ${avail.includes(x) ? '' : 'disabled'}>${SRC_NAME[x]}${avail.includes(x) ? ' · ' + fmtMoney(partUnitCost(r, x, t)) + ' · ' + PART_LEAD[x] + ' d' : x === 'own' || x === 'fab' ? ' – none built' : r.stats ? ' – node not offered yet' : ' – exclusive tech'}</option>`).join('')}</select></td>
+          <td><select data-pmode class="small"><option value="auto" ${r.line.mode === 'auto' ? 'selected' : ''}>Match phones</option><option value="manual" ${r.line.mode === 'manual' ? 'selected' : ''}>Fixed rate</option><option value="off" ${r.line.mode === 'off' ? 'selected' : ''}>Stop production</option></select>
+            ${r.line.mode === 'manual' ? `<input type="number" data-prate value="${r.line.rate}" min="0" step="100" style="width:90px"> /mo` : ''}</td>
+          <td class="small">${partLineStatus(r)}</td>
+          <td class="num">${fmtNum(r.stock || 0)}${cover != null ? `<div class="tiny ${cover < 10 ? 'bad' : 'faint'}">${Math.round(cover)} days</div>` : ''}</td>
+          <td class="num">${inPipe(r) ? fmtNum(inPipe(r)) : '—'}</td>
+          <td class="num">${rate ? fmtNum(rate) : '—'}</td>
+          <td class="num">${cost ? fmtMoney(cost) : '—'}</td></tr>`;
+      }).join('')}</tbody></table></div>
+      <div class="tiny faint mt-s">"Match phones" keeps the lead time plus ~3 weeks of stock for every phone line that uses the part. Own plants build at cost but have limited capacity; contract makers charge +22% and a monthly tooling fee; foundry wafers take ~2½ months and your allocation grows as you use it.</div></div>`;
+  },
+});
 registerView('production', Production);
 
 // ---- Factories ----------------------------------------------------------------------------
@@ -247,7 +303,7 @@ const Factories = {
             <div class="spec-list small"><span class="k">Build cost</span><span class="v">${fmtMoney(cost)}</span>
               <span class="k">Construction</span><span class="v">${Math.max(1, Math.round(ft.days / 30))} month${ft.days > 45 ? 's' : ''}</span>
               <span class="k">Upkeep</span><span class="v">${fmtMoney(ft.upkeep * ecoNow() * perk('upkeepMul', 1))}/mo</span>
-              ${ft.cap ? `<span class="k">Capacity</span><span class="v">${fmtNum(ft.cap)} ${ft.unit}/mo</span>` : ''}</div>
+              ${ft.cap ? `<span class="k">Capacity</span><span class="v">${fmtNum(plantCapAt(type, t))} ${ft.unit}/mo <span class="faint">(+75% per level)</span></span>` : ''}</div>
             <button class="btn primary" data-build="${type}">Build · ${fmtMoney(cost)}</button></div>`;
         }).join('')}
         <div class="card fac"><div class="hd"><div class="ic">💠</div><div><div class="nm">Chip Fab</div><div class="tiny faint">${owned.filter(f => f.type === 'fab').length} owned</div></div></div>
@@ -255,7 +311,7 @@ const Factories = {
           <div class="field"><span class="lbl">Process node</span><select id="fabNode">${fabNodes.map(n => `<option value="${n.nm}" ${n.nm === this.fabNode ? 'selected' : ''}>${nodeLabel(n.nm)}${n.year > t ? ' ◆ ahead of foundries' : ''}</option>`).join('')}</select></div>
           <div class="spec-list small"><span class="k">Build cost</span><span class="v">${fmtMoney(factoryBuildCost('fab', fn.nm))}</span>
             <span class="k">Upkeep</span><span class="v">${fmtMoney(fn.fab * 0.004 * perk('upkeepMul', 1))}/mo</span>
-            <span class="k">Capacity</span><span class="v">${fmtNum(FACTORY_TYPES.fab.cap)} wafers/mo</span>
+            <span class="k">Capacity</span><span class="v">${fmtNum(plantCapAt('fab', t))} wafers/mo</span>
             <span class="k">Your wafer cost</span><span class="v good">${fmtMoney(fn.wafer * 0.3)} <span class="faint">vs ${fmtMoney(waferPrice(fn, t))}</span></span></div>
           <button class="btn primary" data-build="fab">Build ${nodeLabel(fn.nm)} fab</button></div>
       </div>`;
@@ -605,6 +661,7 @@ const Finance = {
     const h = S.history.slice(-12);
     const rows = [['Device sales (after retail cut)', 'revenue', 1], ['From other brands (contracts, chips, royalties)', 'b2b', 1], ['Spare capacity sales', 'spare', 1],
       ['Cost of devices sold', 'sold', -1], ['Contract & chip production', 'cogs', -1], ['Manufacturer line fees', 'lines', -1], ['Factory upkeep', 'upkeep', -1], ['Research', 'rnd', -1], ['Development, tooling & tape-outs', 'dev', -1],
+      ['Patent royalties', 'royalty', -1], ['Warranty & returns', 'warranty', -1], ['Freight, duties & logistics', 'logistics', -1],
       ['Marketing', 'marketing', -1], ['Overhead & staff', 'overhead', -1], ['Interest', 'interest', -1], ['Penalties & recalls', 'penalty', -1], ['Corporate tax (22%)', 'tax', -1]];
     const mkt = marketSize('phone', now()) * segBudget('phone', 'mid', now());
     const maxMk = Math.max(5e3, Math.ceil(Math.max(avgRevenue() * 0.3, mkt * 0.004, S.marketing * 1.5) / 1e3) * 1e3);
@@ -619,7 +676,8 @@ const Finance = {
       ${S.cash < 0 ? `<div class="note bad mt">⚠️ You are overdrawn (18% interest). Stay below −${fmtMoney(creditLimit())} for 90 days and the company goes bankrupt. ${S.overdraftDays ? `<b>${90 - S.overdraftDays} days left.</b>` : ''}</div>` : ''}
       <div class="card mt"><h2>📣 Marketing</h2>
         <div class="field"><span class="lbl">Monthly budget</span><div class="row"><input type="range" id="mk" min="0" max="${maxMk}" step="${Math.max(100, maxMk / 200)}" value="${Math.min(S.marketing, maxMk)}"><span class="val" id="mkVal">${fmtMoney(S.marketing)}</span></div></div>
-        <div class="small dim mt-s">Ads, retail placement and sponsorships raise brand awareness (now <b>${fmtPct(S.aware)}</b>). It fades ~2.5% per month without support; happy customers spread the word. Big rivals sit at 30–90%. The whole market spends about ${fmtMoney(mkt)} a month on phones.</div>
+        <div class="small dim mt-s">Ads, retail placement and sponsorships raise brand awareness (now <b>${fmtPct(S.aware)}</b> overall). It fades ~2.5% per month without support; happy customers spread the word. Big rivals sit at 30–90%. The whole market spends about ${fmtMoney(mkt)} a month on phones.</div>
+        ${this.mktTargeting()}
       </div>
       <div class="card mt"><h2>Profit & loss <span class="sub">last ${h.length} months</span></h2>
         ${h.length ? `<div class="scroll-x"><table class="tbl"><thead><tr><th></th>${h.map(m => `<th class="num">${dateLabel(m.t)}</th>`).join('')}</tr></thead><tbody>
@@ -640,6 +698,30 @@ const Finance = {
     const mk = $('#mk');
     mk.oninput = () => { S.marketing = Math.round(+mk.value / 100) * 100; $('#mkVal').textContent = fmtMoney(S.marketing); };
     mk.onchange = () => toast(`Marketing budget: ${fmtMoney(S.marketing)}/month`);
+    el.oninput = e => {
+      const sg = e.target.dataset.mseg;
+      if (sg) { ensureMkt(); S.mktSeg[sg] = +e.target.value; const sh = mktSegShares(); for (const k of SEGMENTS) { const o = $(`[data-msegv="${k}"]`, el); if (o) o.textContent = fmtPct(sh[k], 0) + ' · ' + fmtMoney(S.marketing * sh[k]); } }
+    };
+    el.onclick = e => {
+      const f = e.target.closest('[data-mfocus]');
+      if (f) { ensureMkt(); const k = f.dataset.mfocus; S.mktFocus[k] = !S.mktFocus[k]; renderCurrent(true); }
+    };
+  },
+  // where the ads run (segments) and what they say (message focus)
+  mktTargeting() {
+    ensureMkt();
+    const sh = mktSegShares(), fo = mktFocusShares(), t = now(), split = segSplit(t);
+    return `<div class="grid g2 mt">
+      <div><h3>Audience</h3><div class="tiny faint mb-s">How the budget is split across buyer segments. Each segment has its own awareness of your brand.</div>
+        ${SEGMENTS.map((sg, i) => `<div class="mk-seg"><span class="nm">${SEG_INFO[sg].name}<span class="tiny faint"> · ${fmtPct(split[i], 0)} of buyers · ~${fmtMoney(segBudget('phone', sg, t))}</span></span>
+          <input type="range" data-mseg="${sg}" min="0" max="10" step="1" value="${S.mktSeg[sg]}">
+          <span class="tiny mono" data-msegv="${sg}">${fmtPct(sh[sg], 0)} · ${fmtMoney(S.marketing * sh[sg])}</span>
+          <div class="mk-aw">${meter(S.segAware[sg] / 0.95)}<span class="tiny faint">aware ${fmtPct(S.segAware[sg], 1)}</span></div></div>`).join('')}</div>
+      <div><h3>Message</h3><div class="tiny faint mb-s">What the ads talk about. Buyers in the targeted segments rate your phones higher on those points – fully if the phone really leads its rivals there, only a little if the ads oversell. None picked = a pure brand campaign.</div>
+        <div class="cluster">${MKT_FOCUS.map(k => `<button class="btn sm ${S.mktFocus[k] ? 'primary' : ''}" data-mfocus="${k}">${SUB_LABELS[k]}${fo[k] ? ' · ' + fmtPct(fo[k], 0) : ''}</button>`).join('')}</div>
+        ${activeTrends(t).length ? `<div class="mt-s">${activeTrends(t).map(tr => trendNote(tr, t)).join('')}<div class="tiny faint">Ads about a trending topic work better.</div></div>` : ''}
+        <div class="tiny faint mt-s">Message strength this month: <b>${fmtPct(S.mktStrength || 0, 0)}</b> (it takes a budget of about ${fmtMoney(0.012 * marketSize('phone', t) * segBudget('phone', 'mid', t))}/mo to be heard over the whole market).</div></div>
+    </div>`;
   },
 };
 registerView('finance', Finance);

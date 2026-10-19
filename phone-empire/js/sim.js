@@ -175,7 +175,7 @@ function productCosts(spec, t, maker) {
   else if (spec.chip.kind === 'vendor') comps.push({ key: 'chip', label: 'SoC (' + chip.vendor + ')', buy: ev.costs.chip * sm });
   else {
     const { e, fab, early } = customChipCost(chip, t);
-    comps.push({ key: 'chip', label: 'SoC (custom)', buy: early ? null : e.foundry, own: fab ? e.own : null, pool: fab ? 'fab' + chip.nm : null, wafers: e.wafers, buyLabel: 'foundry' });
+    comps.push({ key: 'chip', label: 'SoC (custom)', buy: early ? null : e.foundry, own: fab ? e.own : null, rec: spec.chip.id, buyLabel: 'foundry' });
   }
   const part = (key, type, label, ref, base) => {
     if (!ref || base == null) return;
@@ -183,7 +183,7 @@ function productCosts(spec, t, maker) {
     const d = partRecord(ref);
     const excl = d ? designExclusive(d) : false;
     const plant = factoryActive(type);
-    comps.push({ key, type, label: label + ' (' + (d ? d.name : 'design') + ')', buy: excl ? null : base * CONTRACT_MARKUP * sm, own: plant ? base * inMul : null, pool: plant ? type : null, buyLabel: 'contract' });
+    comps.push({ key, type, label: label + ' (' + (d ? d.name : 'design') + ')', buy: excl ? null : base * CONTRACT_MARKUP * sm, own: plant ? base * inMul : null, rec: d ? d.id : null, buyLabel: 'contract' });
   };
   part('display', 'display', 'Display', spec.display, ev.costs.display);
   for (const [k, ref] of camsList(spec)) part('cam_' + k, 'camera', CAM_ROLES[k].name, ref, ev.costs.cams[k]);
@@ -234,13 +234,14 @@ function newGame(opts) {
   const start = opts.start || FIRST_YEAR;
   S = {
     version: 3, company: opts.company || 'Nimbus Devices', playstyle: opts.playstyle || 'brand', start, day: 0,
-    cash: opts.cash || 10e3, debt: 0, own: 1, aware: 0.005, rep: 6.5,
+    cash: opts.cash || 10e3, debt: 0, own: 1, aware: 0.005, rep: 6.5, dist: 0.25, segShare: {},
     researched: {}, rsPaid: {}, research: [], licensed: {}, factories: [], chips: [], designs: [], products: [], protos: [],
     contracts: [], offers: [], funding: { done: {}, pitch: null, offer: null, cooldown: {} },
     rivalPhones: [], rivalNext: {}, marketing: 0, month: emptyMonth(), history: [], shareHist: [], news: [], goals: {}, overdraftDays: 0,
     draft: null, chipDraft: null, partDrafts: {}, stats: { sold: 0, launched: 0, bestReview: 0, researched: 0 }, speed: 0, over: false, taxLoss: 0, exited: {},
   };
   S.aware = perk('aware', 0.005);
+  ensureMkt();
   for (const tc of TECHS) if (!tc.never && tc.market <= start) S.researched[tc.id] = tc.market;   // know-how you start with
   if (S.playstyle === 'maker') S.factories.push(newFactory('workshop', null, 'active', FACTORY_TYPES.workshop.cost * econ(start) * 0.5));
   S.draft = defaultDraft('phone', start);
@@ -252,7 +253,8 @@ function newGame(opts) {
   addNews('Tip: design a phone in the Phone Lab and build a prototype. Then pitch friends & family and angels in the Investors tab.', 'info');
 }
 function emptyMonth() {
-  return { revenue: 0, b2b: 0, cogs: 0, sold: 0, build: 0, upkeep: 0, rnd: 0, marketing: 0, overhead: 0, lines: 0, interest: 0, tax: 0, capex: 0, dev: 0, spare: 0, units: 0, funding: 0, penalty: 0 };
+  return { revenue: 0, b2b: 0, cogs: 0, sold: 0, build: 0, upkeep: 0, rnd: 0, marketing: 0, overhead: 0, lines: 0, interest: 0, tax: 0, capex: 0, dev: 0, spare: 0, units: 0, funding: 0, penalty: 0,
+    royalty: 0, warranty: 0, logistics: 0, wafers: 0 };
 }
 function newFactory(type, nm, status, invested) {
   return { id: uid('f'), type, nm: nm || null, level: 1, status, readyDay: 0, invested, sellSpare: true, used: 0, usedLast: 0 };
@@ -348,7 +350,8 @@ function rivalPricing() {
   for (const p of S.rivalPhones) {
     if (!p.active) continue;
     const floor = p.bom / (1 - RETAIL_CUT) * 1.03;
-    p.price = roundPrice(Math.max(floor, p.price * (p.successor ? 0.97 : 0.988)));
+    const war = S.segShare && S.segShare[p.seg] > 0.06 ? clamp(1 - (S.segShare[p.seg] - 0.06) * 0.25, 0.97, 1) : 1;
+    p.price = roundPrice(Math.max(floor, p.price * (p.successor ? 0.97 : 0.988) * war));
   }
 }
 
@@ -378,28 +381,120 @@ function monthlyRefresh() {
 }
 
 // ---- Demand -------------------------------------------------------------------------------
-// Each region × segment: buyers split between phones in proportion to their appeal:
-//   presence(brand) × value(quality, price) × hype × reviews × network coverage
+// Buyers in every region × segment compare every phone on sale. A phone's pull is
+//   presence (awareness × shelf space) × value (quality, price vs the segment's budget)
+//   × fair price (does it cost more than rivals ask for the same quality, given the brand?)
+//   × deal-breakers (far behind its segment on something buyers care about) × hype × reviews × coverage
 const presence = aware => Math.pow(Math.max(0.001, aware), 0.65);
-function playerPresence() {
+// ---- Marketing: a budget split over the buyer segments, with a message focus -----------------------
+const MKT_FOCUS = ['perf', 'cam', 'disp', 'batt', 'net', 'design', 'feat'];
+function ensureMkt() {
+  if (!S.mktSeg) S.mktSeg = { budget: 1, mid: 1, premium: 1, ultra: 1 };
+  if (!S.mktFocus) S.mktFocus = {};
+  if (!S.segAware) S.segAware = Object.fromEntries(SEGMENTS.map(sg => [sg, S.aware]));
+  if (S.mktStrength == null) S.mktStrength = 0;
+}
+function mktSegShares() {
+  ensureMkt();
+  const tot = SEGMENTS.reduce((a, sg) => a + Math.max(0, S.mktSeg[sg] || 0), 0);
+  return Object.fromEntries(SEGMENTS.map(sg => [sg, tot > 0 ? Math.max(0, S.mktSeg[sg] || 0) / tot : 0.25]));
+}
+function mktFocusShares() {
+  ensureMkt();
+  const on = MKT_FOCUS.filter(k => S.mktFocus[k]);
+  return Object.fromEntries(MKT_FOCUS.map(k => [k, on.includes(k) ? 1 / on.length : 0]));
+}
+function setAllAware(fn) { ensureMkt(); for (const sg of SEGMENTS) S.segAware[sg] = clamp(fn(S.segAware[sg]), 0.003, 0.95); S.aware = SEGMENTS.reduce((a, sg, i) => a + segSplit(now())[i] * S.segAware[sg], 0); }
+function playerPresence(seg) {
   let m = 1;
   for (const id of ['biz_retail1', 'biz_carrier', 'biz_stores']) if (S.researched[id]) m *= id === 'biz_stores' ? 1.1 : 1.15;
-  return presence(S.aware) * m;
+  const aw = seg && S.segAware ? S.segAware[seg] : S.aware;
+  return presence(aw) * m * (0.35 + 0.65 * (S.dist == null ? 1 : S.dist));
+}
+// what buyers in a segment think of your phone after your ads: the message focus lifts those
+// categories – fully if the phone really is better than its rivals there, a little if the ads oversell
+function perceivedQ(subs, cat, seg, t) {
+  const f = mktFocusShares(), st = segRivalStats(cat, seg), k0 = S.mktStrength || 0;
+  if (!k0 || !MKT_FOCUS.some(k => f[k])) return segQuality(subs, seg, t);
+  const b = {};
+  for (const k in subs) b[k] = subs[k] * (1 + 0.14 * (f[k] || 0) * k0 * (subs[k] >= (st.subs[k] || 0) ? 1 : 0.35) * (1 + trendBoost(k, seg, t)));
+  return segQuality(b, seg, t);
 }
 const hype = (launch, t) => 1 + 0.3 * Math.exp(-Math.max(0, t - launch) * 12 / 3);
-const reviewMul = r => Math.exp(0.22 * ((r == null ? 6.5 : r) - 6.5));
+const reviewMul = r => Math.exp(0.28 * ((r == null ? 6.5 : r) - 6.5));
+const userMul = u => (u == null ? 1 : Math.exp(0.12 * (u - 6.5)));
+// pricing power: a known, trusted brand can ask more for the same phone than a newcomer
+const brandPower = (aware, rep) => clamp(0.85 + 0.3 * aware + 0.03 * (rep - 7.5), 0.72, 1.2);
+const playerBrandPower = () => brandPower(S.aware, S.rep);
+// the market's brand-neutral price for a quality level: a local linear fit through the rivals on sale
+const _fair = {};
+function marketFair(cat) {
+  const key = monthIndex(now());
+  if (_fair[cat] && _fair[cat].key === key) return _fair[cat].fit;
+  const t = now(), pts = [];
+  for (const r of S.rivalPhones) if (r.active && r.cat === cat && r.q) {
+    const rv = RIVALS.find(x => x.id === r.rival);
+    pts.push([r.q.mid, Math.log(r.price / brandPower(rivalAware(rv, t), rv.rep))]);
+  }
+  const fit = q => {
+    if (pts.length < 2) return null;
+    let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (const [x, y] of pts) { const w = Math.exp(-0.5 * Math.pow((x - q) / 9, 2)) + 1e-6; sw += w; sx += w * x; sy += w * y; sxx += w * x * x; sxy += w * x * y; }
+    const mx = sx / sw, my = sy / sw, vx = sxx / sw - mx * mx;
+    const b = vx > 1e-6 ? clamp((sxy / sw - mx * my) / vx, 0.01, 0.12) : 0.05;
+    return Math.exp(my + b * (q - mx));
+  };
+  _fair[cat] = { key, fit };
+  return fit;
+}
+function fairPrice(cat, qmid, bp) { const f = marketFair(cat)(qmid); return f == null ? null : f * bp; }
+// asking much more than the fair price empties the shelves fast
+const fairMul = ratio => (ratio == null ? 1 : Math.exp(-3.5 * Math.pow(Math.max(0, ratio - 1.05), 1.4)));
+// what rivals in a segment offer (monthly): average sub-scores, camera share, typical network generation
+let _segStats = {}, _segStatsKey = -1;
+function segRivalStats(cat, seg) {
+  const key = monthIndex(now());
+  if (key !== _segStatsKey) { _segStats = {}; _segStatsKey = key; }
+  if (_segStats[cat + seg]) return _segStats[cat + seg];
+  const rs = S.rivalPhones.filter(r => r.active && r.cat === cat && r.seg === seg && r.subs && r.raw);
+  const out = { n: rs.length, subs: {}, cam: 0, gen: 0 };
+  for (const k in SUB_LABELS) out.subs[k] = rs.length ? rs.reduce((a, r) => a + r.subs[k], 0) / rs.length : SEG_INFO[seg].typical;
+  out.cam = rs.length ? rs.filter(r => r.raw.cam > 0).length / rs.length : 0;
+  const gens = rs.map(r => r.raw.gen || 0).sort((a, b) => a - b);
+  out.gen = gens.length ? gens[Math.floor(gens.length / 2)] : 0;
+  _segStats[cat + seg] = out;
+  return out;
+}
+// buyers walk away from a phone that is far behind on something their segment cares about
+function dealBreakers(o, cat, seg, t) {
+  const st = segRivalStats(cat, seg), w = segWeights(seg, t), why = [];
+  let m = 1;
+  if (!st.n || !o.subs) return { m, why };
+  for (const k in w) {
+    if (w[k] < 0.08) continue;
+    const rel = o.subs[k] / Math.max(1, st.subs[k]);
+    if (rel < 0.6) { m *= Math.pow(Math.max(0.05, rel) / 0.6, 1.2); why.push(k); }
+  }
+  if (st.cam >= 0.6 && o.raw && !(o.raw.cam > 0)) { m *= 0.5; why.push('nocam'); }
+  if (o.raw && st.gen && (o.raw.gen || 0) < st.gen) { m *= Math.pow(0.6, Math.min(2, st.gen - (o.raw.gen || 0))); why.push('oldnet'); }
+  return { m, why };
+}
 function listings(cat) {
   const t = now(), list = [];
   for (const r of S.rivalPhones) if (r.active && r.cat === cat && r.q) {
-    const rv = RIVALS.find(x => x.id === r.rival);
-    list.push({ o: r, pres: presence(rivalAware(rv, t)), review: r.review, regions: r.regions, cov: r.cov, price: r.price, launch: r.launch });
+    const rv = RIVALS.find(x => x.id === r.rival), aw = rivalAware(rv, t);
+    const fp = fairPrice(cat, r.q.mid, brandPower(aw, rv.rep));
+    list.push({ o: r, pres: presence(aw), review: r.review, regions: r.regions, cov: r.cov, price: r.price, launch: r.launch, fairM: fairMul(fp ? r.price / fp : null) });
   }
-  const pp = playerPresence();
-  for (const p of S.products) if (p.status === 'active' && p.spec.cat === cat && p.q)
-    list.push({ o: p, mine: true, pres: pp, review: p.review, regions: null, cov: p.cov, price: p.price, launch: p.launch });
+  const bp = playerBrandPower(), t2 = now();
+  const presSeg = Object.fromEntries(SEGMENTS.map(sg => [sg, playerPresence(sg)]));
+  for (const p of S.products) if (p.status === 'active' && p.spec.cat === cat && p.q) {
+    const fp = fairPrice(cat, p.q.mid, bp), um = userMul(p.user);
+    list.push({ o: p, mine: true, presSeg: Object.fromEntries(SEGMENTS.map(sg => [sg, presSeg[sg] * um])), qSeg: Object.fromEntries(SEGMENTS.map(sg => [sg, perceivedQ(p.subs, cat, sg, t2)])),
+      review: p.review, regions: null, cov: p.cov, price: p.price, launch: p.launch, fairM: fairMul(fp ? p.price / fp : null) });
+  }
   return list;
 }
-const MKT = {};
 function demandFor(list, cat, extra) {
   const t = now(), M = marketSize(cat, t), split = segSplit(t), reg = regionShares(t);
   const out = new Map();
@@ -408,7 +503,7 @@ function demandFor(list, cat, extra) {
   const all = extra ? list.concat([extra]) : list;
   SEGMENTS.forEach((seg, si) => {
     const si2 = SEG_INFO[seg];
-    const base = all.map(x => x.pres * valueTerm(x.o.q[seg], x.price, cat, seg, t) * hype(x.launch, t) * reviewMul(x.review));
+    const base = all.map(x => (x.presSeg ? x.presSeg[seg] : x.pres) * valueTerm(x.qSeg ? x.qSeg[seg] : x.o.q[seg], x.price, cat, seg, t) * hype(x.launch, t) * reviewMul(x.review) * x.fairM * dealBreakers(x.o, cat, seg, t).m);
     const A0 = 0.5 * Math.pow(si2.typical / 100, si2.k);
     for (const r of REGION_ORDER) {
       const Ms = M * split[si] * reg[r];
@@ -427,6 +522,7 @@ function demandFor(list, cat, extra) {
 }
 // smooth: actual demand drifts toward the target over ~a month
 function computeDemand(snap) {
+  const segUnits = {};
   for (const cat of ['phone', 'tablet']) {
     const list = listings(cat);
     const res = demandFor(list, cat);
@@ -434,8 +530,13 @@ function computeDemand(snap) {
       const d = res.get(x);
       x.o.target = d.units; x.o.segUnits = d.seg;
       x.o.demand = snap || x.o.demand == null ? d.units : x.o.demand + (d.units - x.o.demand) * 0.045;
+      if (x.mine && cat === 'phone') for (const sg in d.seg) segUnits[sg] = (segUnits[sg] || 0) + d.seg[sg];
     }
   }
+  // your share of each phone segment (rivals defend the segments you are winning)
+  const t = now(), M = marketSize('phone', t), split = segSplit(t);
+  S.segShare = {};
+  SEGMENTS.forEach((sg, i) => { S.segShare[sg] = (segUnits[sg] || 0) / Math.max(1, M * split[i]); });
 }
 // what-if: monthly demand for a design that is not on sale yet (at full ramp)
 function estimateDemand(raw, cat, price, review, cov) {
@@ -443,36 +544,68 @@ function estimateDemand(raw, cat, price, review, cov) {
   const subs = subscores(raw, cat, t);
   const q = {};
   for (const seg of SEGMENTS) q[seg] = segQuality(subs, seg, t);
-  const ev = { o: { q }, mine: true, pres: playerPresence(), review, regions: null, cov: cov || raw.cov, price, launch: t - 0.5 };
+  const fp = fairPrice(cat, q.mid, playerBrandPower());
+  const ev = { o: { q, subs, raw }, mine: true, presSeg: Object.fromEntries(SEGMENTS.map(sg => [sg, playerPresence(sg)])), qSeg: Object.fromEntries(SEGMENTS.map(sg => [sg, perceivedQ(subs, cat, sg, t)])),
+    review, regions: null, cov: cov || raw.cov, price, launch: t - 0.5, fairM: fairMul(fp ? price / fp : null) };
   const res = demandFor(listings(cat), cat, ev);
-  return { units: res.get(ev).units, bySeg: res.get(ev).seg, subs, q };
+  return { units: res.get(ev).units, bySeg: res.get(ev).seg, subs, q, fair: fp };
 }
-function predictReview(raw, cat, price, exclusive) {
+
+// ---- Reviews -------------------------------------------------------------------------------
+// Five outlets score every category against the rivals in the phone's price segment – plus value
+// for money against the fair price. Each weighs the categories its readers care about.
+const OUTLETS = [
+  { name: 'The Circuit', from: 1973, w: { design: 1.6, disp: 1.2, cam: 1.1, perf: 0.9, batt: 1, net: 0.6, feat: 0.9, value: 0.9 } },
+  { name: 'MobileSpecs', from: 1973, w: { perf: 1.5, batt: 1.3, net: 1.4, feat: 1.2, disp: 1, cam: 0.9, design: 0.6, value: 1 } },
+  { name: 'LensLab', from: 2003, w: { cam: 3.2, disp: 1.2, perf: 0.7, batt: 0.7, design: 0.8, feat: 0.5, net: 0.3, value: 0.7 } },
+  { name: 'ValueBuy', from: 1973, w: { value: 3, batt: 1.3, net: 1, perf: 0.8, cam: 0.8, disp: 0.8, design: 0.6, feat: 0.8 } },
+  { name: 'Consumer Weekly', from: 1973, w: { value: 1.7, batt: 1.6, net: 1.2, design: 1.1, feat: 0.9, cam: 0.8, perf: 0.6, disp: 0.8 } },
+];
+const REVIEW_GOOD = { perf: 'blazing performance', cam: 'a superb camera', disp: 'a gorgeous display', batt: 'outstanding battery life', net: 'great reception and speed', design: 'a gorgeous, portable design', feat: 'a loaded feature set', value: 'great value for money' };
+const REVIEW_BAD = { perf: 'sluggish performance', cam: 'a disappointing camera', disp: 'a mediocre screen', batt: 'weak battery life', net: 'poor reception', design: 'a dated, bulky design', feat: 'missing features', value: 'overpriced for what it offers' };
+function reviewHash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
+function predictReview(raw, cat, price, exclusive, name) {
   const t = now(), seg = segmentForPrice(cat, price, t);
   const subs = subscores(raw, cat, t);
-  const q = segQuality(subs, seg, t);
-  const V = Math.log(Math.max(1e-9, valueTerm(q, price, cat, seg, t)));
-  const rivals = S.rivalPhones.filter(r => r.active && r.cat === cat && r.seg === seg && r.q);
-  let Vbar = Math.log(valueTerm(SEG_INFO[seg].typical, segBudget(cat, seg, t), cat, seg, t));
-  if (rivals.length) Vbar = rivals.reduce((a, r) => a + Math.log(Math.max(1e-9, valueTerm(r.q[seg], r.price, cat, seg, t))), 0) / rivals.length;
-  const avgSubs = {};
-  for (const k in SUB_LABELS) avgSubs[k] = rivals.length ? rivals.reduce((a, r) => a + r.subs[k], 0) / rivals.length : 70;
-  let score = 6.5 + 1.6 * (V - Vbar) + (exclusive ? 0.25 : 0) + (S.researched.biz_pr ? 0.3 : 0) + (S.researched.biz_stores ? 0.2 : 0) + (S.researched.biz_influencer ? 0.2 : 0);
-  return { score: clamp(score, 1, 10), seg, subs, avgSubs, q };
+  const q = {};
+  for (const sg of SEGMENTS) q[sg] = segQuality(subs, sg, t);
+  const st = segRivalStats(cat, seg), eraW = interp(ERA_WEIGHTS, t);
+  const avgSubs = st.subs;
+  const cats = {};
+  for (const k in SUB_LABELS) cats[k] = clamp(6.5 + 3.2 * Math.log(Math.max(1, subs[k]) / Math.max(1, avgSubs[k])), 1, 10);
+  const fp = fairPrice(cat, q.mid, playerBrandPower());
+  const ratio = fp ? price / fp : 1;
+  cats.value = clamp(6.5 - 4.5 * Math.log(ratio), 1, 10);
+  const db = dealBreakers({ subs, raw }, cat, seg, t);
+  const outlets = [];
+  for (const o of OUTLETS) {
+    if (t < o.from || (o.name === 'LensLab' && !(raw.cam > 0))) continue;
+    let sw = 0, sc = 0;
+    const eff = {};
+    for (const k in o.w) { eff[k] = o.w[k] * (k === 'value' ? 0.2 : eraW[k] || 0); sw += eff[k]; sc += eff[k] * cats[k]; }
+    const noise = (reviewHash((name || '') + o.name) - 0.5) * 0.7;
+    const score = clamp(sc / Math.max(1e-9, sw) + noise - (db.why.length ? 0.4 * db.why.length : 0), 1, 10);
+    const ks = Object.keys(eff).filter(k => eff[k] > 0.04).sort((a, b) => cats[b] - cats[a]);
+    outlets.push({ name: o.name, score, best: ks[0], worst: ks[ks.length - 1] });
+  }
+  let score = outlets.reduce((a, o) => a + o.score, 0) / Math.max(1, outlets.length);
+  score += (exclusive ? 0.25 : 0) + (S.researched.biz_pr ? 0.3 : 0) + (S.researched.biz_stores ? 0.2 : 0) + (S.researched.biz_influencer ? 0.2 : 0);
+  return { score: clamp(score, 1, 10), seg, subs, avgSubs, q, cats, outlets, ratio, fair: fp, dealBreakers: db.why };
 }
 function reviewNotes(rv, ev, exclusive) {
-  const diffs = Object.keys(SUB_LABELS).map(k => [k, rv.subs[k] - rv.avgSubs[k]]).sort((a, b) => b[1] - a[1]);
-  const good = { perf: 'blazing performance', cam: 'a superb camera', disp: 'a gorgeous display', batt: 'outstanding battery life', net: 'great reception and speed', design: 'a gorgeous, portable design', feat: 'a loaded feature set' };
-  const bad = { perf: 'sluggish performance', cam: 'a disappointing camera', disp: 'a mediocre screen', batt: 'weak battery life', net: 'poor reception', design: 'a dated, bulky design', feat: 'missing features' };
+  const ks = Object.keys(rv.cats).sort((a, b) => rv.cats[b] - rv.cats[a]);
   const notes = [];
-  if (diffs[0][1] > 4) notes.push('+ ' + good[diffs[0][0]]);
-  if (diffs[1][1] > 4) notes.push('+ ' + good[diffs[1][0]]);
-  if (diffs[6][1] < -4) notes.push('− ' + bad[diffs[6][0]]);
-  if (diffs[5][1] < -6) notes.push('− ' + bad[diffs[5][0]]);
+  if (rv.cats[ks[0]] >= 7.3) notes.push('+ ' + REVIEW_GOOD[ks[0]]);
+  if (rv.cats[ks[1]] >= 7.6) notes.push('+ ' + REVIEW_GOOD[ks[1]]);
+  const worst = ks[ks.length - 1];
+  if (rv.cats[worst] <= 5.4) notes.push('− ' + REVIEW_BAD[worst]);
+  if (rv.cats.value <= 5.4 && worst !== 'value') notes.push('− ' + REVIEW_BAD.value);
+  if ((rv.dealBreakers || []).includes('nocam')) notes.push('− no camera, when every rival has one');
+  if ((rv.dealBreakers || []).includes('oldnet')) notes.push('− stuck on an older network generation');
   if (ev.sustain < 0.7) notes.push('− runs hot and throttles');
   for (const n of ev.layout.notes.slice(0, 2)) notes.push(n);
   if (exclusive && exclusive.length) notes.push('+ first to ship ' + exclusive.slice(0, 2).map(id => TECH[id].name).join(', '));
-  return notes;
+  return [...new Set(notes)];
 }
 
 // ---- Actions: design ------------------------------------------------------------------------
@@ -542,17 +675,19 @@ function finishDev(p) {
   p.status = 'active'; p.launch = t;
   refreshProduct(p);
   const ev = evalPhone(p.spec, t, chipFor(p.spec));
-  const rv = predictReview(p.raw, p.spec.cat, p.price, p.exclusive.length);
+  const rv = predictReview(p.raw, p.spec.cat, p.price, p.exclusive.length, p.name);
   p.review = Math.round(rv.score * 10) / 10;
   p.notes = reviewNotes(rv, ev, p.exclusive);
+  p.outlets = rv.outlets.map(o => ({ name: o.name, score: Math.round(o.score * 10) / 10, best: o.best, worst: o.worst }));
+  p.user = p.review;
   S.rep = S.rep * 0.7 + p.review * 0.3;
-  if (p.review >= 7.5) S.aware = clamp(S.aware + (1 - S.aware) * 0.012 * (p.review - 7), 0, 0.95);
+  if (p.review >= 7.5) setAllAware(a => a + (1 - a) * 0.012 * (p.review - 7));
   S.stats.launched++;
   S.stats.bestReview = Math.max(S.stats.bestReview, p.review);
   completeGoal('launch1');
   if (p.review >= 8) completeGoal('review8');
   if (!['car', 'bag'].includes(formOf(p.spec))) completeGoal('handheld');
-  addNews(`🚀 ${p.name} launches! Reviews: ${p.review.toFixed(1)}/10 — ${p.notes.join(', ') || 'a solid, unremarkable device'}.`, p.review >= 7 ? 'good' : p.review < 5 ? 'bad' : 'info', true);
+  addNews(`🚀 ${p.name} launches! Reviews: ${p.review.toFixed(1)}/10 (${p.outlets.map(o => o.name + ' ' + o.score.toFixed(1)).join(' · ')}) — ${p.notes.join(', ') || 'a solid, unremarkable device'}.`, p.review >= 7 ? 'good' : p.review < 5 ? 'bad' : 'info', true);
 }
 
 // ---- Part design (labs) ---------------------------------------------------------------------
@@ -618,6 +753,76 @@ function listChip(c, price) {
   addNews(c.listed ? `${c.name} is now offered to other brands at ${fmtMoney(c.listPrice)} per chip.` : `${c.name} is no longer offered to other brands.`, 'info');
 }
 
+// ---- Part stock ---------------------------------------------------------------------------------
+// Your own part designs and processors are produced into stock: in your own plant (at cost, limited
+// capacity), by a contract part maker (+22%, a monthly line fee, ~3 weeks lead time) or, for chips, at a
+// foundry (wafers take ~2½ months, and a newcomer only gets a small wafer allocation). Phones draw their
+// own parts from stock – no stock, no phones. Standard parts and vendor chips are bought as needed.
+const PART_LEAD = { own: 7, contract: 21, foundry: 75, fab: 45 };
+const SRC_NAME = { own: 'your plant', contract: 'contract maker', foundry: 'foundry', fab: 'your fab' };
+function partRecordById(id) { return S.designs.find(d => d.id === id) || S.chips.find(c => c.id === id) || null; }
+const recType = r => (r.stats ? 'chip' : r.type);
+function partRecords() { return S.designs.concat(S.chips); }
+function ensureLine(r) {
+  if (!r.line) r.line = { mode: 'auto', rate: 0, src: 'auto' };
+  if (r.stock == null) r.stock = 0;
+  if (r.stockCost == null) r.stockCost = 0;
+  if (!r.pipe) r.pipe = [];
+  return r;
+}
+function designBaseCost(d, t) {
+  const st = d.type === 'camera' ? evalCamera(d.p, t, d.role) : d.type === 'radio' ? evalRadio(d.p, t, false) : PART_EVAL[d.type](d.p, t);
+  return st ? st.cost : 0;
+}
+// where this part can be made right now, cheapest first
+function lineSources(r) {
+  const t = now(), out = [];
+  if (recType(r) === 'chip') {
+    if (hasFab(r.stats.nm)) out.push('fab');
+    if (t >= nodeByNm(r.stats.nm).year) out.push('foundry');
+  } else {
+    if (factoryActive(r.type)) out.push('own');
+    if (!designExclusive(r)) out.push('contract');
+  }
+  const want = r.line && r.line.src;
+  return want && want !== 'auto' ? out.filter(x => x === want) : out;
+}
+function partUnitCost(r, src, t) {
+  if (recType(r) === 'chip') { const pc = processorCost(r.stats, t); return src === 'fab' ? pc.own : pc.foundry; }
+  const base = designBaseCost(r, t);
+  return src === 'own' ? base * perk('inMul', 1) : base * CONTRACT_MARKUP * supplyMul();
+}
+const inPipe = r => (r.pipe || []).reduce((a, b) => a + b.units, 0);
+function addStock(r, units, unitCost) {
+  if (units <= 0) return;
+  r.stockCost = (r.stock * r.stockCost + units * unitCost) / (r.stock + units);
+  r.stock += units;
+}
+// units per day the running and upcoming phone lines will draw from each part record
+function partNeeds() {
+  const need = {};
+  for (const p of S.products) {
+    if (p.status === 'retired' || p.discontinued) continue;
+    let rate = p.line.mode === 'manual' ? p.line.rate : p.status === 'active' ? Math.max(p.demand || 0, (p.target || 0) * 0.5) : (p.forecast || 0) * 0.6;
+    // never plan for more phones than the assembly line can build
+    if (p.lineMaker) rate = Math.min(rate, p.lineMaker === 'own' ? factoryPool('assembly') : partnerById(p.lineMaker).cap);
+    for (const r of specStockParts(p.spec)) need[r.id] = (need[r.id] || 0) + rate / 30;
+  }
+  return need;
+}
+// the parts a spec takes from stock (a record appears once per unit used)
+function specStockParts(spec) {
+  const out = [];
+  const add = ref => { if (ref && ref.src === 'own') { const r = partRecordById(ref.id); if (r) out.push(ensureLine(r)); } };
+  add(spec.display); add(spec.battery); add(spec.memory); add(spec.radio);
+  for (const [, ref] of camsList(spec)) add(ref);
+  if (spec.chip && spec.chip.kind === 'custom') { const c = S.chips.find(x => x.id === spec.chip.id); if (c) out.push(ensureLine(c)); }
+  return out;
+}
+// foundry wafer allocation: grows with what you actually order, so a newcomer can't flood the market overnight
+const foundryFloor = t => interp([[1973, 15], [1990, 60], [2000, 150], [2010, 300], [2020, 400], [2040, 400]], t);
+function foundryAlloc() { return Math.max(foundryFloor(now()), (S.wafersLast || 0) * 1.6); }
+
 // ---- Production lines ---------------------------------------------------------------------------
 // Each product has one line at one manufacturer. "Auto" picks the cheapest maker that can build it.
 function lineCosts(p, maker) {
@@ -667,7 +872,26 @@ function factoryUpkeep(f) {
   const base = f.type === 'fab' ? nodeByNm(f.nm).fab * 0.004 : FACTORY_TYPES[f.type].upkeep * ecoNow();
   return base * (1 + 0.6 * (f.level - 1)) * perk('upkeepMul', 1);
 }
-function factoryCap(f) { return FACTORY_TYPES[f.type].cap * f.level; }
+// What one plant turns out per month at level 1 in its era. Plants are small next to the market,
+// so a big brand cannot make everything in-house – it needs many plants, or suppliers.
+const PLANT_CAP = {
+  workshop: [[1973, 120], [1985, 450], [1995, 1000], [2005, 1800], [2016, 2500], [2040, 2500]],
+  assembly: [[1973, 500], [1985, 2500], [1995, 9000], [2005, 22000], [2016, 35000], [2040, 45000]],
+  display:  [[1973, 300], [1985, 1800], [1995, 6000], [2005, 14000], [2016, 22000], [2040, 28000]],
+  camera:   [[1973, 300], [1985, 1800], [1995, 7000], [2005, 18000], [2016, 28000], [2040, 35000]],
+  battery:  [[1973, 300], [1985, 1800], [1995, 7000], [2005, 18000], [2016, 28000], [2040, 35000]],
+  memory:   [[1973, 400], [1985, 2500], [1995, 9000], [2005, 22000], [2016, 35000], [2040, 45000]],
+  radio:    [[1973, 300], [1985, 1800], [1995, 7000], [2005, 18000], [2016, 28000], [2040, 35000]],
+  fab:      [[1973, 30], [1985, 60], [1995, 120], [2005, 220], [2016, 350], [2040, 450]],     // wafers
+};
+const plantLevelMul = lv => 1 + 0.75 * (lv - 1);
+function plantCapAt(type, t) { return PLANT_CAP[type] ? interp(PLANT_CAP[type], t) : FACTORY_TYPES[type].cap || 0; }
+// a new plant ramps up over its first three months
+function factoryCap(f) {
+  if (!FACTORY_TYPES[f.type].cap) return 0;
+  const ramp = f.onDay == null ? 1 : clamp(0.4 + 0.6 * (S.day - f.onDay) / 90, 0.4, 1);
+  return Math.round(plantCapAt(f.type, now()) * plantLevelMul(f.level) * ramp);
+}
 function poolKeyOf(f) { return f.type === 'fab' ? 'fab' + f.nm : FACTORY_TYPES[f.type].pool || f.type; }
 function factoryName(f) { return f.type === 'fab' ? `${nodeLabel(f.nm)} Chip Fab` : FACTORY_TYPES[f.type].name; }
 function buildFactory(type, nm) {
@@ -897,7 +1121,8 @@ function acceptOffer(id) {
 
 // ---- Finance -----------------------------------------------------------------------------
 function factoryValue() { return S.factories.reduce((a, f) => a + f.invested * 0.6, 0); }
-function inventoryValue() { return S.products.reduce((a, p) => a + p.inventory * (p.unitCostLast || 0), 0); }
+function partStockValue() { return partRecords().reduce((a, r) => a + (r.stock || 0) * (r.stockCost || 0) + (r.pipe || []).reduce((x, b) => x + b.units * b.cost, 0), 0); }
+function inventoryValue() { return S.products.reduce((a, p) => a + p.inventory * (p.unitCostLast || 0), 0) + partStockValue(); }
 function netWorth() { return S.cash - S.debt + factoryValue() + inventoryValue(); }
 function loanLimit() { return Math.max(0, 10e3 * fundScale() + 0.3 * Math.max(0, netWorth()) + 2 * avgRevenue() - S.debt); }
 function loanRate() { return 0.09; }
@@ -948,7 +1173,7 @@ function tickDay() {
   // construction & engineering
   for (const f of S.factories) {
     if (f.status === 'building' && S.day >= f.readyDay) {
-      f.status = 'active';
+      f.status = 'active'; f.onDay = S.day;
       addNews(`🏗️ ${factoryName(f)} is online.`, 'good', true);
       S.products.forEach(p => { p.costs = null; });
       if (f.type !== 'rnd') completeGoal('factory');
@@ -967,7 +1192,7 @@ function tickDay() {
     addNews(`🛠️ ${d.name} is engineered and tooled up – pick it in the Phone Lab.`, 'good', true);
   }
   for (const x of S.protos) if (x.review == null && S.day >= x.readyDay) {
-    x.review = Math.round(predictReview(x.raw, x.spec.cat, x.price, (x.excl || []).length).score * 10) / 10;
+    x.review = Math.round(predictReview(x.raw, x.spec.cat, x.price, (x.excl || []).length, x.name).score * 10) / 10;
     completeGoal('proto');
     addNews(`🧪 Prototype ${x.name} is ready. Hands-on impressions: ${x.review.toFixed(1)}/10. Show it to angel investors!`, 'good', true);
   }
@@ -999,6 +1224,47 @@ function produce() {
     pool[c.type] = (pool[c.type] || 0) - got;
     c.delivered += got;
     spend(got * contractUnitCost(c.type), 'cogs');
+  }
+  // part stock: arrivals, then the part lines (own plants first, then contract makers and foundries)
+  const need = partNeeds();
+  let waferLeft = foundryAlloc() / 30;
+  for (const r of partRecords()) {
+    ensureLine(r);
+    if (r.pipe.length) r.pipe = r.pipe.filter(b => { if (b.day > S.day) return true; addStock(r, b.units, b.cost); return false; });
+    r.lineMsg = null;
+    if (r.status !== 'ready' || r.line.mode === 'off') continue;
+    const srcs = lineSources(r);
+    if (!srcs.length) { r.lineMsg = recType(r) === 'chip' ? 'No fab for this node yet' : 'Exclusive tech – needs your own plant'; continue; }
+    let want;
+    if (r.line.mode === 'manual') want = r.line.rate / 30;
+    else {
+      const rate = need[r.id] || 0, lead = PART_LEAD[srcs[srcs.length - 1]];
+      want = Math.max(0, rate + (rate * (lead + 20) - r.stock - inPipe(r)) / 20);
+    }
+    if (want <= 0) continue;
+    r.acc = Math.min((r.acc || 0) + want, want * 4 + 2);
+    let left = Math.floor(r.acc);
+    for (const src of srcs) {
+      if (left <= 0) break;
+      const chip = recType(r) === 'chip', per = chip ? processorCost(r.stats, t).wafers : 1;
+      let cap = Infinity;
+      if (src === 'own') cap = Math.floor((pool[r.type] || 0) + 1e-9);
+      if (src === 'fab') cap = Math.floor((pool['fab' + r.stats.nm] || 0) / per + 1e-9);
+      if (src === 'foundry') cap = Math.floor(Math.max(0, waferLeft) / per + 1e-9);
+      const unitCost = partUnitCost(r, src, t);
+      const budget = S.cash + creditLimit() * 0.5 - monthlyFixed();
+      let units = Math.min(left, cap, Math.floor(Math.max(0, budget) / Math.max(0.01, unitCost)));
+      if (units <= 0) { if (cap <= 0 && src === srcs[srcs.length - 1]) r.lineMsg = src === 'foundry' ? 'Foundry allocation used up this month' : 'Plant at capacity'; continue; }
+      if (src === 'own') pool[r.type] -= units;
+      if (src === 'fab') pool['fab' + r.stats.nm] -= units * per;
+      if (src === 'foundry') { waferLeft -= units * per; S.month.wafers = (S.month.wafers || 0) + units * per; }
+      if (src === 'contract') r.contractMonth = true;
+      spend(units * unitCost, 'build');
+      r.pipe.push({ day: S.day + PART_LEAD[src], units, cost: unitCost });
+      r.madeMonth = (r.madeMonth || 0) + units;
+      r.lastSrc = src;
+      left -= units; r.acc -= units;
+    }
   }
   // chips sold to rivals
   for (const r of S.rivalPhones) if (r.active && r.playerChip) {
@@ -1039,31 +1305,33 @@ function produce() {
       if (partnerLeft[m] == null) partnerLeft[m] = partnerById(m).cap / 30;
       units = Math.min(units, Math.floor(partnerLeft[m] + 1e-9));
     }
-    // exclusive parts only come from your own plants
-    for (const c of pc.comps) if (c.buy == null && c.key !== 'assembly') {
-      const avail = c.pool ? (pool[c.pool] || 0) / (c.wafers || 1) : 0;
-      units = Math.min(units, Math.floor(avail + 1e-9));
+    // your own parts and chips come out of stock: no stock, no phones
+    const per = {};
+    for (const c of pc.comps) if (c.rec) per[c.rec] = (per[c.rec] || 0) + 1;
+    p.partShort = null;
+    for (const id in per) {
+      const r = partRecordById(id);
+      const can = r ? Math.floor((r.stock + 1e-9) / per[id]) : 0;
+      if (can < units) { units = can; p.partShort = r ? r.name : 'a deleted part'; }
     }
     // you pay as units come off the line – and keep enough back for this month's bills
+    let cashUnit = 0;
+    for (const c of pc.comps) if (!c.rec) cashUnit += c.buy != null ? c.buy : c.own || 0;
     const budget = S.cash + creditLimit() * 0.5 - monthlyFixed();
-    units = Math.min(units, Math.floor(Math.max(0, budget) / Math.max(0.01, pc.est)));
-    p.cashStalled = units <= 0 && budget < pc.est;
+    units = Math.min(units, Math.floor(Math.max(0, budget) / Math.max(0.01, cashUnit)));
+    p.cashStalled = units <= 0 && budget < cashUnit;
     if (units <= 0) continue;
     p.prodAcc -= units;
-    let cost = 0;
+    let cost = 0, fromStock = 0;
     for (const c of pc.comps) {
-      if (c.own != null && c.pool) {
-        const need = units * (c.wafers || 1), use = Math.min(need, pool[c.pool] || 0);
-        pool[c.pool] = (pool[c.pool] || 0) - use;
-        const frac = need > 0 ? use / need : 1;
-        cost += units * (frac * c.own + (1 - frac) * (c.buy != null ? c.buy : c.own));
-      } else cost += units * (c.buy != null ? c.buy : c.own || 0);
+      if (c.rec) { const r = partRecordById(c.rec); fromStock += units * r.stockCost; r.stock -= units; r.usedMonth = (r.usedMonth || 0) + units; }
+      else cost += units * (c.buy != null ? c.buy : c.own || 0);
     }
     if (m === 'own') pool.assembly -= units; else partnerLeft[m] -= units;
     const defect = (m === 'own' ? 0.01 : partnerById(m).defect) * defectMul();
     const good = Math.max(0, units - Math.round(units * defect * (0.6 + Math.random() * 0.8)));
     p.inventory += good;
-    p.unitCostLast = cost / Math.max(1, good);
+    p.unitCostLast = (cost + fromStock) / Math.max(1, good);
     p.producedMonth = (p.producedMonth || 0) + good;
     p.lineUsed = true;
     spend(cost, 'build');            // goes into stock; it becomes a cost when sold
@@ -1078,9 +1346,19 @@ function produce() {
 // roughly what end-of-month bills will be (staff, upkeep, line fees, marketing)
 function monthlyFixed() {
   const active = S.products.filter(p => p.status === 'active').length;
-  let f = (5e3 + 40e3 * active) * ecoNow() + S.marketing;
+  let f = (10e3 + 90e3 * active) * ecoNow() + S.marketing;
   for (const fa of S.factories) if (fa.status === 'active') f += factoryUpkeep(fa);
   return f * 0.5;
+}
+// standard-essential patent royalties as a share of the wholesale price, by network generation (capped per unit)
+const royaltyRate = gen => (gen >= 4 ? 0.045 : gen >= 3.5 ? 0.04 : gen >= 3 ? 0.035 : gen >= 2.5 ? 0.03 : gen >= 2 ? 0.025 : 0.01);
+function unitOverheads(p, wholesale) {
+  const maker = p.lineMaker, defect = (maker && maker !== 'own' ? partnerById(maker).defect : 0.01) * defectMul();
+  return {
+    royalty: Math.min(royaltyRate((p.raw && p.raw.gen) || 0) * wholesale, 18 * ecoNow()),
+    warranty: (0.015 + 1.5 * defect) * (p.unitCostLast || 0) + 0.004 * wholesale,
+    logistics: 0.025 * wholesale + 0.6 * ecoNow(),
+  };
 }
 function sell() {
   const cut = retailCut();
@@ -1094,7 +1372,9 @@ function sell() {
     p.inventory -= sold;
     const rev = sold * p.price * (1 - cut);
     p.sold += sold; p.soldMonth += sold; p.revenue += rev;
-    p.profit += rev - sold * (p.unitCostLast || 0);
+    const uo = unitOverheads(p, p.price * (1 - cut));
+    spend(sold * uo.royalty, 'royalty'); spend(sold * uo.warranty, 'warranty'); spend(sold * uo.logistics, 'logistics');
+    p.profit += rev - sold * ((p.unitCostLast || 0) + uo.royalty + uo.warranty + uo.logistics);
     S.month.sold += sold * (p.unitCostLast || 0);
     S.cash += rev; S.month.revenue += rev; S.month.units += sold;
     S.stats.sold += sold;
@@ -1111,12 +1391,19 @@ function endOfMonth() {
   for (const fa of S.factories) if (fa.status === 'active') upkeep += factoryUpkeep(fa);
   spend(upkeep, 'upkeep');
   const active = S.products.filter(p => p.status === 'active').length;
-  spend((5e3 + 40e3 * active) * ecoNow() + 0.12 * (m.revenue + m.b2b), 'overhead');   // staff, software, support, offices
+  const partLines = partRecords().filter(r => r.status === 'ready' && (r.madeMonth || r.stock > 0)).length;
+  spend((10e3 + 90e3 * active + 15e3 * partLines) * ecoNow() + 0.09 * (m.revenue + m.b2b), 'overhead');   // engineers, support, sales & admin, offices
   // contract manufacturer line fees for every line that ran this month
   const usedMakers = new Set();
   for (const p of S.products) { if (p.lineUsed && p.lineMaker && p.lineMaker !== 'own') usedMakers.add(p.lineMaker + '|' + p.id); p.lineUsed = false; }
   let lines = 0;
   for (const k of usedMakers) lines += partnerById(k.split('|')[0]).lineFee * ecoNow() * 0.25;
+  // contract part makers keep your tooling set up for every month they build for you
+  for (const r of partRecords()) {
+    if (r.contractMonth) lines += PART_INFO[r.type].nre * 0.08 * ecoNow();
+    r.contractMonth = false; r.madeLast = r.madeMonth || 0; r.madeMonth = 0; r.usedLast = r.usedMonth || 0; r.usedMonth = 0;
+  }
+  S.wafersLast = m.wafers || 0;
   spend(lines, 'lines');
   spend(inventoryValue() * 0.012, 'overhead');
   spend(S.debt * loanRate() / 12 + Math.max(0, -S.cash) * 0.18 / 12, 'interest');
@@ -1151,7 +1438,8 @@ function endOfMonth() {
       const cost = Math.min(p.sold, p.producedMonth * 6) * Math.max(5, p.unitCostLast * 0.4);
       spend(cost, 'penalty');
       S.rep = Math.max(3, S.rep - 0.8);
-      S.aware *= 0.94;
+      setAllAware(a => a * 0.94);
+      p.recalled = true;
       addNews(`🔥 Battery fires reported in the ${p.name}! A recall costs ${fmtMoney(cost)} and hurts your reputation. Safer cells (Battery Lab) cut the risk.`, 'bad', true);
     }
   }
@@ -1162,10 +1450,37 @@ function endOfMonth() {
   let mk = perk('mkMul', 1);
   for (const id of ['biz_ads1', 'biz_ads2', 'biz_ads3']) if (S.researched[id]) mk *= 1.15;
   const eff = m.marketing * mk;
-  const gain = 0.1 * eff / (eff + K);
-  const wom = Math.min(0.012, 0.12 * m.units / Math.max(1, total)) * (S.rep / 7) * (S.researched.biz_influencer ? 1.2 : 1);
-  S.aware = clamp(S.aware + (1 - S.aware) * (gain + wom) - 0.025 * S.aware, 0.003, 0.95);
-  S.rep = S.rep + (6.5 - S.rep) * (S.researched.biz_service ? 0.02 : 0.01);
+  // each segment has its own awareness: the budget split decides where the ads run (diminishing returns per segment)
+  ensureMkt();
+  const ws = mktSegShares(), split = segSplit(t), soldSeg = {};
+  for (const p of S.products) if (p.status === 'active' && p.segUnits) {
+    const tot = Object.values(p.segUnits).reduce((a, b) => a + b, 0) || 1;
+    for (const sg in p.segUnits) soldSeg[sg] = (soldSeg[sg] || 0) + (p.soldMonth || 0) * p.segUnits[sg] / tot;
+  }
+  SEGMENTS.forEach((sg, i) => {
+    const e = eff * ws[sg], Ks = K * split[i];
+    const gain = 0.05 * e / (e + Ks);            // brands take years to build
+    const wom = Math.min(0.02, 3 * (soldSeg[sg] || 0) / Math.max(1, total * split[i])) * clamp((S.rep - 4.5) / 2.5, 0, 1.6) * (S.researched.biz_influencer ? 1.2 : 1);
+    const a = S.segAware[sg];
+    S.segAware[sg] = clamp(a + (1 - a) * (gain + wom) - 0.02 * a, 0.003, 0.95);
+  });
+  S.aware = SEGMENTS.reduce((a, sg, i) => a + split[i] * S.segAware[sg], 0);
+  S.mktStrength = clamp(eff / Math.max(1, K), 0, 1);    // how loud the message is
+  // shelf space: stores stock brands that sell (about 8% of the market buys you a full shelf)
+  const mShare = m.units / Math.max(1, total);
+  let shelf = 0.25 + 0.6 * Math.sqrt(Math.min(1, mShare / 0.08));
+  for (const id of ['biz_retail1', 'biz_carrier', 'biz_stores', 'biz_online']) if (S.researched[id]) shelf += 0.05;
+  S.dist = clamp((S.dist == null ? 0.25 : S.dist) + (Math.min(1, shelf) - (S.dist == null ? 0.25 : S.dist)) * 0.12, 0.2, 1);
+  // owners' ratings drift toward what living with the phone is like: quality, value, reliability
+  const live = S.products.filter(p => p.status === 'active' && p.review != null);
+  for (const p of live) {
+    const rv = predictReview(p.raw, p.spec.cat, p.price, 0, p.name);
+    const defect = (p.lineMaker && p.lineMaker !== 'own' ? partnerById(p.lineMaker).defect : 0.01) * defectMul();
+    const target = clamp(0.55 * p.review + 0.45 * rv.cats.value - 25 * Math.max(0, defect - 0.01) - (p.recalled ? 1.2 : 0), 1, 10);
+    p.user = p.user == null ? p.review : p.user + (target - p.user) * 0.25;
+  }
+  const userAvg = live.length ? live.reduce((a, p) => a + p.user, 0) / live.length : null;
+  S.rep = userAvg == null ? S.rep + (6.5 - S.rep) * (S.researched.biz_service ? 0.02 : 0.01) : S.rep + (userAvg - S.rep) * (S.researched.biz_service ? 0.08 : 0.05);
   // market share snapshot
   const share = { t };
   for (const cat of ['phone', 'tablet']) {
@@ -1183,7 +1498,8 @@ function endOfMonth() {
   // benchmark crowns
   if (S.products.some(p => p.status === 'active') && benchLeaders().some(b => b.mine)) completeGoal('bench1');
   // close the books (22% corporate tax, losses carry forward)
-  const pretax = m.revenue + m.b2b + m.spare - m.cogs - m.sold - m.upkeep - m.rnd - m.marketing - m.overhead - m.lines - m.interest - m.dev - m.penalty;
+  const pretax = m.revenue + m.b2b + m.spare - m.cogs - m.sold - m.upkeep - m.rnd - m.marketing - m.overhead - m.lines - m.interest - m.dev - m.penalty
+    - (m.royalty || 0) - (m.warranty || 0) - (m.logistics || 0);
   let taxable = pretax;
   if (taxable > 0) { const use = Math.min(S.taxLoss, taxable); taxable -= use; S.taxLoss -= use; } else S.taxLoss -= taxable;
   m.tax = Math.max(0, taxable) * TAX_RATE;
@@ -1199,6 +1515,10 @@ function endOfMonth() {
     addNews(`📈 Industry trend: ${tc.name} is now standard – research it to keep up.`, 'world');
   for (const n of NODES) if (t >= n.year && t - 1 / 12 < n.year) addNews(`💠 Foundries now offer the ${nodeLabel(n.nm)} process (${fmtMoney(n.wafer)}/wafer).`, 'world');
   for (const e of EVENTS) if (t >= e.start && t - 1 / 12 < e.start) addNews(`🌍 ${e.title}: ${e.desc}`, 'bad', true);
+  for (const tr of TRENDS) {
+    if (t >= tr.start && t - 1 / 12 < tr.start) addNews(`📈 Trend: ${tr.title}! ${tr.desc} (Buyers weigh ${Object.keys(tr.k).map(k => SUB_LABELS[k].toLowerCase()).join(' & ')} more${tr.segs ? ' in ' + tr.segs.map(sg => SEG_INFO[sg].name.toLowerCase()).join(', ') : ''} – ads about it work better.)`, 'world', true);
+    if (t >= tr.end && t - 1 / 12 < tr.end) addNews(`📉 The ${tr.title.toLowerCase()} fades.`, 'world');
+  }
   for (const c of CARRIERS) for (const s in c.stds) {
     const [a, b] = c.stds[s];
     if (t >= a && t - 1 / 12 < a && c.share >= 0.3) addNews(`📡 ${c.name} (${REGIONS[c.region].name}) switch on ${NET_STDS[s].name}.`, 'world');

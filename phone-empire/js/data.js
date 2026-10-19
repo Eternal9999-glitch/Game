@@ -170,12 +170,12 @@ const ARCH_YEARS = [1971, 1976, 1979, 1982, 1985, 1988, 1991, 1994, 1996.5, 1999
 // ---- Device categories & form factors -------------------------------------------------
 const CATS = {
   phone: {
-    name: 'Phone', icon: '📱', devCost: 200e3,
+    name: 'Phone', icon: '📱', devCost: 800e3,
     labor: [[1973, 60], [1980, 50], [1985, 38], [1990, 26], [1995, 17], [2002, 13], [2010, 11], [2040, 11]],
     misc:  [[1973, 80], [1980, 70], [1985, 55], [1990, 40], [1995, 28], [2000, 22], [2006, 19], [2010, 16], [2040, 16]],
   },
   tablet: {
-    name: 'Tablet', icon: '📟', devCost: 250e3,
+    name: 'Tablet', icon: '📟', devCost: 1000e3,
     labor: [[1973, 60], [2010, 17], [2040, 17]],
     misc:  [[1973, 60], [2010, 26], [2040, 26]],
   },
@@ -234,16 +234,16 @@ const TABLET_PREF = [[2007, 9.7], [2014, 9.7], [2018, 10.5], [2022, 11.0], [2040
 const SEGMENTS = ['budget', 'mid', 'premium', 'ultra'];
 // k: how strongly quality drives choice, e: price sensitivity (power-law exponents)
 const SEG_INFO = {
-  budget:  { name: 'Budget',    k: 2.2, e: 2.0, tilt: { perf: .8, cam: .8, disp: .9, batt: 1.3, net: 1.0, design: .8, feat: 1.0 }, typical: 62 },
-  mid:     { name: 'Mid-range', k: 2.8, e: 1.6, tilt: { perf: 1, cam: 1, disp: 1, batt: 1, net: 1, design: 1, feat: 1 }, typical: 74 },
-  premium: { name: 'Premium',   k: 3.4, e: 1.2, tilt: { perf: 1.1, cam: 1.15, disp: 1.05, batt: .9, net: 1, design: 1.1, feat: .95 }, typical: 86 },
-  ultra:   { name: 'Ultra',     k: 4.0, e: 0.8, tilt: { perf: 1.2, cam: 1.3, disp: 1.1, batt: .8, net: 1, design: 1.2, feat: .9 }, typical: 96 },
+  budget:  { name: 'Budget',    k: 2.2, e: 2.6, tilt: { perf: .8, cam: .8, disp: .9, batt: 1.3, net: 1.0, design: .8, feat: 1.0 }, typical: 62 },
+  mid:     { name: 'Mid-range', k: 2.8, e: 2.1, tilt: { perf: 1, cam: 1, disp: 1, batt: 1, net: 1, design: 1, feat: 1 }, typical: 74 },
+  premium: { name: 'Premium',   k: 3.4, e: 1.6, tilt: { perf: 1.1, cam: 1.15, disp: 1.05, batt: .9, net: 1, design: 1.1, feat: .95 }, typical: 86 },
+  ultra:   { name: 'Ultra',     k: 4.0, e: 1.15, tilt: { perf: 1.2, cam: 1.3, disp: 1.1, batt: .8, net: 1, design: 1.2, feat: .9 }, typical: 96 },
 };
 // what a typical buyer in each segment spends
 const SEG_BUDGET = {
   phone:  [[1973, [800, 1250, 1800, 2600]], [1983, [800, 1300, 2000, 2900]], [1987, [650, 1100, 1800, 2700]], [1990, [450, 850, 1400, 2200]],
-           [1993, [250, 500, 900, 1400]], [1996, [150, 300, 550, 900]], [2000, [110, 230, 420, 720]], [2005, [70, 170, 350, 600]], [2008, [60, 190, 450, 700]],
-           [2012, [100, 300, 600, 900]], [2016, [140, 360, 720, 1080]], [2020, [190, 420, 800, 1200]], [2026, [210, 450, 850, 1300]]],
+           [1993, [250, 500, 900, 1400]], [1996, [150, 320, 600, 1000]], [2000, [110, 240, 480, 850]], [2005, [80, 200, 450, 800]], [2008, [70, 210, 500, 850]],
+           [2012, [100, 300, 620, 900]], [2016, [140, 360, 720, 1080]], [2020, [190, 420, 800, 1200]], [2026, [210, 450, 850, 1300]]],
   tablet: [[1973, [150, 330, 600, 950]], [2014, [170, 360, 680, 1050]], [2020, [200, 420, 800, 1200]], [2026, [220, 450, 850, 1300]]],
 };
 // handsets sold per month worldwide (log-interpolated)
