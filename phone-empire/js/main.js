@@ -3,7 +3,7 @@
 //  Boot: start screen, real-time loop, menu, keyboard shortcuts.
 // ============================================================================
 
-const DAYS_PER_SEC = [0, 2, 6, 20];
+const DAYS_PER_SEC = [0, 1.7, 5, 17];
 let lastFrame = 0, dayAcc = 0, lastRender = 0, lastViewRender = 0, dirty = false;
 
 function startScreen() {

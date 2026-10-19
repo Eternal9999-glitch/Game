@@ -243,10 +243,10 @@ const TABLET_PREF = [[2007, 9.7], [2014, 9.7], [2018, 10.5], [2022, 11.0], [2040
 const SEGMENTS = ['budget', 'mid', 'premium', 'ultra'];
 // k: how strongly quality drives choice, e: price sensitivity (power-law exponents)
 const SEG_INFO = {
-  budget:  { name: 'Budget',    k: 2.2, e: 2.6, tilt: { perf: .8, cam: .8, disp: .9, batt: 1.3, net: 1.0, design: .8, feat: 1.0 }, typical: 62 },
-  mid:     { name: 'Mid-range', k: 2.8, e: 2.1, tilt: { perf: 1, cam: 1, disp: 1, batt: 1, net: 1, design: 1, feat: 1 }, typical: 74 },
-  premium: { name: 'Premium',   k: 3.4, e: 1.6, tilt: { perf: 1.1, cam: 1.15, disp: 1.05, batt: .9, net: 1, design: 1.1, feat: .95 }, typical: 86 },
-  ultra:   { name: 'Ultra',     k: 4.0, e: 1.15, tilt: { perf: 1.2, cam: 1.3, disp: 1.1, batt: .8, net: 1, design: 1.2, feat: .9 }, typical: 96 },
+  budget:  { name: 'Budget',    k: 2.2, e: 2.6, tilt: { perf: .8, cam: .8, disp: .9, batt: 1.3, net: 1.0, design: .8, slim: .7, light: .85, feat: 1.0 }, typical: 62 },
+  mid:     { name: 'Mid-range', k: 2.8, e: 2.1, tilt: { perf: 1, cam: 1, disp: 1, batt: 1, net: 1, design: 1, slim: 1, light: 1, feat: 1 }, typical: 74 },
+  premium: { name: 'Premium',   k: 3.4, e: 1.6, tilt: { perf: 1.1, cam: 1.15, disp: 1.05, batt: .9, net: 1, design: 1.1, slim: 1.2, light: 1.1, feat: .95 }, typical: 86 },
+  ultra:   { name: 'Ultra',     k: 4.0, e: 1.15, tilt: { perf: 1.2, cam: 1.3, disp: 1.1, batt: .8, net: 1, design: 1.2, slim: 1.3, light: 1.15, feat: .9 }, typical: 96 },
 };
 // what a typical buyer in each segment spends
 const SEG_BUDGET = {
@@ -268,16 +268,16 @@ const SEG_SPLIT = [ // budget, mid, premium, ultra
 ];
 // what buyers care about over the decades (sums to 1)
 const ERA_WEIGHTS = [
-  [1973, { perf: .02, cam: 0, disp: .05, batt: .14, net: .22, design: .45, feat: .12 }],
-  [1985, { perf: .03, cam: 0, disp: .08, batt: .20, net: .18, design: .38, feat: .13 }],
-  [1995, { perf: .05, cam: .02, disp: .12, batt: .22, net: .12, design: .30, feat: .17 }],
-  [2001, { perf: .08, cam: .08, disp: .15, batt: .18, net: .10, design: .24, feat: .17 }],
-  [2008, { perf: .17, cam: .16, disp: .16, batt: .15, net: .08, design: .14, feat: .14 }],
-  [2015, { perf: .20, cam: .22, disp: .15, batt: .14, net: .06, design: .12, feat: .11 }],
-  [2025, { perf: .20, cam: .24, disp: .14, batt: .14, net: .05, design: .12, feat: .11 }],
+  [1973, { perf: .02, cam: 0, disp: .05, batt: .14, net: .22, design: .22, slim: .05, light: .18, feat: .12 }],
+  [1985, { perf: .03, cam: 0, disp: .08, batt: .20, net: .18, design: .18, slim: .06, light: .14, feat: .13 }],
+  [1995, { perf: .05, cam: .02, disp: .12, batt: .22, net: .12, design: .14, slim: .06, light: .10, feat: .17 }],
+  [2001, { perf: .08, cam: .08, disp: .15, batt: .18, net: .10, design: .12, slim: .05, light: .07, feat: .17 }],
+  [2008, { perf: .17, cam: .16, disp: .16, batt: .15, net: .08, design: .07, slim: .04, light: .03, feat: .14 }],
+  [2015, { perf: .20, cam: .22, disp: .15, batt: .14, net: .06, design: .06, slim: .035, light: .025, feat: .11 }],
+  [2025, { perf: .20, cam: .24, disp: .14, batt: .14, net: .05, design: .06, slim: .03, light: .03, feat: .11 }],
 ];
-const SUB_LABELS = { perf: 'Performance', cam: 'Camera', disp: 'Display', batt: 'Battery', net: 'Network', design: 'Design', feat: 'Features' };
-const SUB_ICONS = { perf: '🧠', cam: '📷', disp: '🖥️', batt: '🔋', net: '📶', design: '🧩', feat: '✨' };
+const SUB_LABELS = { perf: 'Performance', cam: 'Camera', disp: 'Display', batt: 'Battery', net: 'Network', design: 'Design', slim: 'Thinness', light: 'Lightness', feat: 'Features' };
+const SUB_ICONS = { perf: '🧠', cam: '📷', disp: '🖥️', batt: '🔋', net: '📶', design: '🧩', slim: '📏', light: '🪶', feat: '✨' };
 
 // ---- Display design options ---------------------------------------------------------------
 // emitter / light-modulator layer. nits: brightness (emissive) or transmittance (LCD × backlight).
@@ -447,11 +447,11 @@ const CHEM = {
 };
 const CHEM_ORDER = ['nicd', 'nimh', 'liion', 'lipo', 'hv', 'sic', 'solid'];
 const BAT_FORMAT = {
-  cyl:     { name: 'Cylindrical cells', tech: null, pack: 0.72, cost: 0.9, risk: 0.8, desc: 'Round cells in a pack: robust, but wasted corners.' },
-  prism:   { name: 'Prismatic can', tech: 'bat_prism', pack: 0.86, cost: 1.0, risk: 1.0, desc: 'A flat aluminum can.' },
-  pouch:   { name: 'Pouch', tech: 'bat_lipo', pack: 0.94, cost: 1.05, risk: 1.15, lithium: true, desc: 'Foil pouch fills every millimetre – but needs room to swell.' },
-  shaped:  { name: 'Shaped (L / split) cells', tech: 'bat_shaped', pack: 0.99, cost: 1.35, risk: 1.05, lithium: true, desc: 'L-shaped or split cells fill every corner around the board.' },
-  stacked: { name: 'Stacked-electrode pouch', tech: 'bat_stack', pack: 0.97, cost: 1.2, risk: 1.0, lithium: true, desc: 'Stacked instead of wound electrodes: square corners, lower resistance.' },
+  cyl:     { name: 'Cylindrical cells', tech: null, minT: 10.5, pack: 0.72, cost: 0.9, risk: 0.8, desc: 'Round cells in a pack: robust, but wasted corners.' },
+  prism:   { name: 'Prismatic can', tech: 'bat_prism', minT: 4.2, pack: 0.86, cost: 1.0, risk: 1.0, desc: 'A flat aluminum can.' },
+  pouch:   { name: 'Pouch', tech: 'bat_lipo', minT: 2.7, pack: 0.94, cost: 1.05, risk: 1.15, lithium: true, desc: 'Foil pouch fills every millimetre – but needs room to swell.' },
+  shaped:  { name: 'Shaped (L / split) cells', tech: 'bat_shaped', minT: 2.7, pack: 0.99, cost: 1.35, risk: 1.05, lithium: true, desc: 'L-shaped or split cells fill every corner around the board.' },
+  stacked: { name: 'Stacked-electrode pouch', tech: 'bat_stack', minT: 2.4, pack: 0.97, cost: 1.2, risk: 1.0, lithium: true, desc: 'Stacked instead of wound electrodes: square corners, lower resistance.' },
 };
 const BAT_FORMAT_ORDER = ['cyl', 'prism', 'pouch', 'shaped', 'stacked'];
 // optional cell & charging features (cyc/risk/maxC: multipliers, cost: $ at launch)
@@ -560,7 +560,60 @@ const WATER = {
   ip67: { name: 'IP67', tech: 'body_ip67', q: .08, cost: 3.5 },
   ip68: { name: 'IP68', tech: 'body_ip68', q: .11, cost: 5.5 },
 };
-const BODY_COLORS = ['#1f2430', '#e8e8ea', '#b9a07a', '#7f98c4', '#c25d5d', '#4f8a64', '#d8a7c4', '#2f4b7c', '#e2c35a', '#9aa0a8', '#3a2f2a', '#f08a3c'];
+// ---- Body upgrades & decorations --------------------------------------------------------------
+// q: looks multiplier, drop: toughness ×, therm: heat it can shed ×, wt: g, vol: cm³ inside, t: mm added to
+// the body, cost: $ per unit at launch (gets cheaper), power: W
+const FRAMES = {
+  none:  { name: 'Shell only', tech: null, q: 1, drop: 1, therm: 1, wt: 0, cost: 0, desc: 'The case itself carries the load.' },
+  mg:    { name: 'Magnesium chassis', tech: 'frame_mg', q: 1.01, drop: 1.06, therm: 1.04, wt: -4, cost: 2.2, desc: 'A die-cast magnesium skeleton: stiffer and lighter.' },
+  steel: { name: 'Steel inner frame', tech: 'frame_steel', q: 1.02, drop: 1.12, therm: 1.06, wt: 9, cost: 3.2, desc: 'A stainless band holds everything together: survives drops, adds weight.' },
+  alu:   { name: 'Aerospace aluminum frame', tech: 'frame_alu', q: 1.025, drop: 1.09, therm: 1.1, wt: 2, cost: 4, desc: 'Machined 7000-series aluminum: stiff, light, sheds heat.' },
+  ti:    { name: 'Titanium chassis', tech: 'frame_ti', q: 1.04, drop: 1.15, therm: 1.02, wt: 1, cost: 9, desc: 'Grade-5 titanium: the strongest, the most premium – and the priciest.' },
+};
+const COOLING = {
+  none:     { name: 'Passive', tech: null, therm: 1, vol: 0, wt: 0, cost: 0, power: 0, q: 1, desc: 'The body is the heat sink.' },
+  graphite: { name: 'Graphite sheets', tech: 'cool_graphite', therm: 1.12, vol: 0.1, wt: 1, cost: 0.6, power: 0, q: 1, desc: 'Spread the chip\'s heat over the whole back.' },
+  pipe:     { name: 'Heat pipe', tech: 'cool_pipe', therm: 1.25, vol: 0.5, wt: 4, cost: 1.8, power: 0, q: 1, desc: 'A copper pipe of boiling fluid carries heat away from the chip.' },
+  vapor:    { name: 'Vapor chamber', tech: 'cool_vapor', therm: 1.4, vol: 0.8, wt: 6, cost: 3.5, power: 0, q: 1, desc: 'A flat chamber spreads heat over the whole frame.' },
+  fan:      { name: 'Active fan', tech: 'cool_fan', therm: 1.85, vol: 2.4, wt: 9, cost: 6, power: 0.06, q: 0.97, desc: 'A tiny blower for gaming phones: full speed all day, but it hums and takes room.' },
+};
+const RUGGED = {
+  none:   { name: 'Standard', tech: null, drop: 1, t: 0, wt: 0, cost: 0, q: 1, desc: 'An ordinary consumer body.' },
+  bumper: { name: 'Corner bumpers', tech: 'rug_bumper', drop: 1.12, t: 0.6, wt: 6, cost: 1.2, q: 0.985, pts: 1.5, desc: 'Air-cushioned corners take the hit.' },
+  mil:    { name: 'MIL-spec rugged', tech: 'rug_mil', drop: 1.3, t: 2.5, wt: 35, cost: 6, q: 0.9, pts: 5, desc: 'Rubber armor and a reinforced frame: survives 2 m onto concrete. Bulky.' },
+};
+const TEXTURES = {
+  plain:   { name: 'Plain', tech: null, q: 1, wt: 0, cost: 0, desc: 'The material as it is.' },
+  carbon:  { name: 'Carbon-fiber weave', tech: 'tex_carbon', q: 1.03, wt: -2, cost: 3, desc: 'A real carbon weave: light, technical, fast-looking.' },
+  leather: { name: 'Leather back', tech: 'tex_leather', q: 1.04, wt: 3, cost: 4, desc: 'Stitched leather: warm, grippy, ages beautifully.' },
+  wood:    { name: 'Wood veneer', tech: 'tex_wood', q: 1.03, wt: 1, cost: 3.5, desc: 'Real wood – every phone is unique.' },
+  aramid:  { name: 'Aramid fiber', tech: 'tex_aramid', q: 1.03, wt: -1, cost: 2.5, desc: 'Bullet-proof-vest fiber: thin, light, invisible to radio waves.' },
+  fabric:  { name: 'Fabric weave', tech: 'tex_fabric', q: 1.02, wt: 1, cost: 2, desc: 'A soft textile back.' },
+  gradient: { name: 'Color gradient', tech: 'tex_gradient', q: 1.03, wt: 0, cost: 1.2, desc: 'Your body and accent colors fade into each other.' },
+  clear:   { name: 'Translucent back', tech: 'tex_clear', q: 1.03, wt: 0, cost: 1.8, desc: 'See the parts inside.' },
+  shift:   { name: 'Color-shift', tech: 'tex_shift', q: 1.04, wt: 0, cost: 2.5, desc: 'Iridescent nano-layers change color with the light.' },
+};
+const COATINGS = {
+  none:    { name: 'None', tech: null, q: 1, drop: 1, water: 0, cost: 0, desc: 'Bare material.' },
+  afp:     { name: 'Anti-fingerprint', tech: 'coat_afp', q: 1.015, drop: 1, water: 0, cost: 0.4, desc: 'Smudges wipe off; the back stays clean.' },
+  nano:    { name: 'Water-repellent nano-coating', tech: 'coat_nano', q: 1.01, drop: 1, water: 0.02, cost: 0.6, desc: 'A molecular film inside and out: shrugs off splashes.' },
+  ceramic: { name: 'Ceramic hard-coat', tech: 'coat_ceramic', q: 1.02, drop: 1.04, water: 0, cost: 1.5, desc: 'A hard layer that resists scratches and scuffs.' },
+};
+const FRAME_FINISH = {
+  match:   { name: 'Body color', tech: null, q: 1, cost: 0, desc: 'The sides match the body.' },
+  accent:  { name: 'Accent-color sides', tech: null, q: 1.005, cost: 0.2, desc: 'The frame in your accent color.' },
+  polish:  { name: 'Mirror-polished', tech: 'ffin_polish', q: 1.015, cost: 0.8, desc: 'A mirror shine on the frame.' },
+  pvd:     { name: 'PVD color coat', tech: 'ffin_pvd', q: 1.02, cost: 1.5, desc: 'A vapor-deposited metallic color that lasts.' },
+  diamond: { name: 'Diamond-cut edges', tech: 'ffin_diamond', q: 1.025, cost: 1.8, desc: 'Sparkling chamfers cut with a diamond tool.' },
+};
+const LOGO_STYLES = {
+  print:  { name: 'Printed', tech: null, q: 1, cost: 0, power: 0, desc: 'Ink on the back.' },
+  emboss: { name: 'Embossed', tech: 'logo_emboss', q: 1.01, cost: 0.4, power: 0, desc: 'Pressed into the material.' },
+  badge:  { name: 'Metal badge', tech: 'logo_badge', q: 1.015, cost: 0.9, power: 0, desc: 'A polished metal inlay.' },
+  glow:   { name: 'Glowing logo', tech: 'logo_glow', q: 1.02, cost: 1.5, power: 0.01, desc: 'Lights up for calls and notifications.' },
+};
+const BODY_UPGRADES = { frame: FRAMES, cooling: COOLING, rugged: RUGGED, texture: TEXTURES, coating: COATINGS, framefin: FRAME_FINISH, logostyle: LOGO_STYLES };
+const BODY_COLORS =['#1f2430', '#e8e8ea', '#b9a07a', '#7f98c4', '#c25d5d', '#4f8a64', '#d8a7c4', '#2f4b7c', '#e2c35a', '#9aa0a8', '#3a2f2a', '#f08a3c'];
 // charging/data connectors: w × h opening on the edge (mm), the body thickness they need
 const PORTS = {
   cord:     { name: 'Handset cord', tech: null, w: 9, h: 9, minT: 0, pts: 0, cost: 2, only: ['car', 'bag'] },
@@ -1084,6 +1137,34 @@ T('form_fold', 'design', 'Foldable phones', 2019.5, 3, 150, 'A hinge that folds 
 T('int_sip', 'design', 'System-in-package', 2021, 1.2, 70, 'Everything on one module: −15%.', ['int_slp']);
 T('body_ti', 'design', 'Titanium frames', 2023.7, 1.2, 70, 'Light and strong aerospace titanium.', ['body_steel']);
 T('port_less', 'design', 'Portless design', 2026, 1, 60, 'No openings at all: charge wirelessly.', ['bat_mag']);
+// body upgrades & decorations
+T('rug_bumper', 'design', 'Shock-absorbing bumpers', 1994, 0.4, 25, 'Rubber-cushioned corners for work phones.');
+T('logo_emboss', 'design', 'Embossed logos', 1995, 0.3, 20, 'Logos pressed into the shell.');
+T('frame_mg', 'design', 'Magnesium chassis', 1998, 0.7, 40, 'A light die-cast skeleton inside the shell.', ['body_mg']);
+T('rug_mil', 'design', 'MIL-spec rugged bodies', 2000.5, 0.8, 45, 'Armored phones for building sites and soldiers.', ['rug_bumper']);
+T('coat_afp', 'design', 'Anti-fingerprint coatings', 2003, 0.4, 25, 'Oil-repellent films for shells and screens.');
+T('tex_leather', 'design', 'Leather backs', 2003.5, 0.5, 30, 'Stitched leather for luxury phones.');
+T('logo_badge', 'design', 'Metal badges', 2004, 0.3, 20, 'Polished metal logo inlays.', ['logo_emboss']);
+T('tex_carbon', 'design', 'Carbon-fiber backs', 2005, 0.6, 35, 'Woven carbon: light and technical.');
+T('frame_steel', 'design', 'Steel inner frames', 2006.5, 0.7, 40, 'A stainless band that carries the whole phone.');
+T('tex_aramid', 'design', 'Aramid-fiber backs', 2009.5, 0.6, 35, 'Kevlar weave: thin, tough and radio-transparent.', ['tex_carbon']);
+T('ffin_polish', 'design', 'Polished frames', 2008, 0.4, 25, 'Mirror-polished metal sides.', ['frame_steel']);
+T('ffin_diamond', 'design', 'Diamond-cut chamfers', 2012.5, 0.5, 30, 'Sparkling edges cut with a diamond tool.', ['ffin_polish']);
+T('cool_graphite', 'design', 'Graphite heat spreaders', 2011, 0.5, 30, 'Thin graphite sheets spread the chip\'s heat.');
+T('coat_nano', 'design', 'Nano-coatings', 2012, 0.6, 35, 'Water-repellent molecular films inside and out.', ['coat_afp']);
+T('tex_wood', 'design', 'Wood veneer backs', 2013, 0.4, 25, 'Real wood on a phone.');
+T('frame_alu', 'design', 'Aerospace aluminum frames', 2014.5, 0.7, 40, 'Machined 7000-series aluminum frames.', ['body_alu']);
+T('tex_fabric', 'design', 'Fabric backs', 2015, 0.4, 25, 'Soft textile covers.');
+T('cool_pipe', 'design', 'Heat pipes', 2015.5, 0.6, 35, 'Copper pipes of boiling fluid carry heat away from the chip.', ['cool_graphite']);
+T('ffin_pvd', 'design', 'PVD frame coatings', 2016.5, 0.5, 30, 'Vapor-deposited metallic colors.', ['ffin_polish']);
+T('logo_glow', 'design', 'Glowing logos', 2016, 0.4, 25, 'A logo that lights up.', ['logo_badge']);
+T('tex_gradient', 'design', 'Gradient color backs', 2018, 0.4, 25, 'Colors fading into each other under glass.', ['body_glass']);
+T('cool_vapor', 'design', 'Vapor chambers', 2018.5, 0.8, 45, 'A flat chamber that spreads heat over the whole frame.', ['cool_pipe']);
+T('cool_fan', 'design', 'Active cooling fans', 2020.5, 0.8, 45, 'A tiny blower for gaming phones.', ['cool_vapor']);
+T('tex_clear', 'design', 'Translucent backs', 2019.5, 0.5, 30, 'Show off the parts inside.', ['body_glass']);
+T('coat_ceramic', 'design', 'Ceramic hard-coats', 2020, 0.6, 35, 'Scratch-resistant ceramic layers.', ['coat_nano']);
+T('tex_shift', 'design', 'Color-shift backs', 2021, 0.6, 35, 'Iridescent nano-layers that change color.', ['tex_gradient']);
+T('frame_ti', 'design', 'Titanium chassis', 2023.5, 0.8, 45, 'A grade-5 titanium skeleton inside the body.', ['frame_alu']);
 
 // features & software
 T('feat_phonebook', 'features', 'Phonebook memory', 1983, 0.5, 30, 'Store names and numbers (needs some storage).', ['fl_1']);
@@ -1296,8 +1377,37 @@ const VENDORS = [
   { id: 'helix', name: 'Helix Semi', series: 'Dimension', month: 5.5, tiers: ['budget', 'mid'] },
   { id: 'arcadia', name: 'Arcadia', series: 'Exo', month: 9.5, tiers: ['mid', 'flagship'] },
 ];
-// supplier brand names for standard parts (flavor)
+// supplier brand names for standard parts (the mainstream maker of each)
 const SUPPLIERS = { display: 'Lumina Panels', camera: 'Optix Imaging', battery: 'Voltacell', memory: 'Microbit Memory', radio: 'Aerial RF' };
+// every part type has several suppliers, each releasing a range of models every year.
+// lag: years behind the newest technology, mk: markup over what the part costs to make, month: release month
+const PART_VENDORS = {
+  display: [
+    { id: 'lumina', name: 'Lumina Panels', series: 'Vista', style: 'main', month: 2, lag: 0.5, mk: 1.45, desc: 'The industry workhorse: proven panels in every size.' },
+    { id: 'kiro', name: 'Kiro Display', series: 'Prism', style: 'premium', month: 8, lag: 0, mk: 1.6, desc: 'The newest panels first – sharper, brighter, thinner, pricier.' },
+    { id: 'valor', name: 'Valor Optronics', series: 'Clear', style: 'budget', month: 5, lag: 1.5, mk: 1.32, desc: 'Older panel technology at a discount: thicker and dimmer, but cheap.' },
+  ],
+  camera: [
+    { id: 'optix', name: 'Optix Imaging', series: 'OX', style: 'main', month: 3, lag: 0.5, mk: 1.45, desc: 'Balanced modules for every phone.' },
+    { id: 'sennix', name: 'Sennix Optics', series: 'SX', style: 'bigsensor', month: 9, lag: 0, mk: 1.6, desc: 'Big sensors and stabilization: the best photos, but tall modules that stick out.' },
+    { id: 'pixelway', name: 'PixelWay', series: 'PW', style: 'compact', month: 6, lag: 0.5, mk: 1.35, desc: 'Small, flat modules for thin phones – fewer pixels, less light.' },
+  ],
+  battery: [
+    { id: 'volta', name: 'Voltacell', series: 'VC', style: 'main', month: 1, lag: 0.5, mk: 1.45, desc: 'Standard cells in every capacity.' },
+    { id: 'slimcell', name: 'SlimCell', series: 'SL', style: 'thin', month: 7, lag: 0, mk: 1.5, desc: 'Ultra-thin cells for slim phones: smaller capacities and a higher price per Wh.' },
+    { id: 'titan', name: 'Titan Power', series: 'TP', style: 'bulk', month: 4, lag: 1.5, mk: 1.32, desc: 'Big, cheap cells on older chemistry: thick, heavy and slower to charge.' },
+  ],
+  memory: [
+    { id: 'microbit', name: 'Microbit Memory', series: 'MB', style: 'main', month: 2, lag: 0.5, mk: 1.45, desc: 'Mainstream RAM and storage combos.' },
+    { id: 'corsa', name: 'Corsa Semiconductor', series: 'CX', style: 'fast', month: 10, lag: 0, mk: 1.6, desc: 'The newest, fastest memory in stacked packages that take little room.' },
+    { id: 'densebyte', name: 'DenseByte', series: 'DB', style: 'budget', month: 6, lag: 1, mk: 1.32, desc: 'Lots of storage for little money: slower interfaces and more packages.' },
+  ],
+  radio: [
+    { id: 'aerial', name: 'Aerial RF', series: 'AR', style: 'main', month: 4, lag: 0.5, mk: 1.45, desc: 'Radios for the networks people actually use.' },
+    { id: 'wavecom', name: 'Wavecom', series: 'WX', style: 'premium', month: 9, lag: 0, mk: 1.6, desc: 'The newest networks first and every band: works everywhere.' },
+    { id: 'kestrel', name: 'Kestrel Wireless', series: 'KW', style: 'budget', month: 6, lag: 1.5, mk: 1.32, desc: 'Cheap modules: fewer bands and an older generation.' },
+  ],
+};
 
 // ---- Scripted world events ------------------------------------------------------
 const EVENTS = [

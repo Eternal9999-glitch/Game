@@ -638,6 +638,25 @@ function navOf(spec, t, form, shape) {
   if (home === 'none' && keys === 'none') keys = 'onscreen';
   return { home, keys, chin: Math.max(NAV_HOME[home].chin, NAV_KEYS[keys].chin) };
 }
+// the room a processor takes on the board (cm³) and how tall its package stands (mm): bigger dies need
+// bigger packages, hungrier chips more power delivery around them
+function chipSpace(c) {
+  if (!c) return { vol: 0.5, z: 0.9 };
+  return { vol: 0.3 + 0.008 * (c.area || 0) + 0.12 * (c.power || 0), z: 0.55 + 0.0025 * (c.area || 0) };
+}
+// body upgrades & decorations (frame, cooling, ruggedness, texture, coating, frame finish, logo) combined
+function bodyUpgrades(spec, t) {
+  const up = spec.up || {}, out = { q: 1, drop: 1, therm: 1, wt: 0, vol: 0, t: 0, cost: 0, power: 0, water: 0, pts: 0, techs: [] };
+  for (const k in BODY_UPGRADES) {
+    const o = BODY_UPGRADES[k][up[k]];
+    if (!o) continue;
+    out.q *= o.q || 1; out.drop *= o.drop || 1; out.therm *= o.therm || 1;
+    out.wt += o.wt || 0; out.vol += o.vol || 0; out.t += o.t || 0; out.power += o.power || 0; out.water += o.water || 0; out.pts += o.pts || 0;
+    out.cost += (o.cost || 0) * decl(0.08, o.tech ? techMarket(o.tech) : 2000, t, 0.3);
+    if (o.tech) out.techs.push(o.tech);
+  }
+  return out;
+}
 // Everything the UI and sim need to know about a design at time t.
 // chip: stats of a vendor or custom chip.
 function evalPhone(spec, t, chip) {
@@ -658,11 +677,12 @@ function evalPhone(spec, t, chip) {
   if (rp && rp.stds.includes('imts') && form !== 'car' && form !== 'bag') issues.push('IMTS needs a 20 W transmitter – only car and bag phones can carry one. Use a cellular standard.');
   // missing DSP for digital radio
   const needDsp = radioGen >= 2 && chip && !chip.dsp && !chip.hasModem;
-  // ---- electronics volume (cm³) ----
+  // ---- electronics volume (cm³): the board with its radio, the processor package, the memory packages ----
   const lv = spec.int == null ? 0 : spec.int;
   const intF = integrationFactor(lv);
-  let elec = ELECTRONICS_BASE * intF * (radio ? radio.vol : 1) * (integrated ? 0.92 : 1) + (needDsp ? 6 * intF * 10 : 0);
-  elec += mem.volume + (chip ? chip.area * 0.004 + 0.3 : 0.5);
+  const boardVol = ELECTRONICS_BASE * intF * (radio ? radio.vol : 1) * (integrated ? 0.92 : 1) + (needDsp ? 6 * intF * 10 : 0);
+  const chipVol = chipSpace(chip).vol;
+  const elec = boardVol + mem.volume + chipVol;
   let extraVol = 0, extraW = 0;
   const feat = spec.feat || {};
   for (const [key, , , , , vol] of EXTRAS) if (feat[key]) { extraVol += vol; extraW += vol * 1.5; }
@@ -678,6 +698,8 @@ function evalPhone(spec, t, chip) {
     if (addonReplaced(k, addonList)) continue;
     addPts += A.pts; addDesign *= A.design || 1; addPower += A.power || 0; addons.push(k);
   }
+  const bodyUp = bodyUpgrades(spec, t);
+  extraVol += bodyUp.vol; extraW += bodyUp.wt;
   const sim = SIMS[spec.sim] || SIMS.none;
   extraVol += sim.vol + (spec.sd ? 0.6 : 0) + (JACKS[spec.jack] ? JACKS[spec.jack].d * 0.15 : 0) + 1.2 /* speaker + mic */ + (F.kp ? 1.5 : 0);
   let camVol = 0, camW = 0, camZ = 0, rearCams = 0;
@@ -700,10 +722,11 @@ function evalPhone(spec, t, chip) {
   const dStack = disp.none ? 0.8 : disp.stack;
   const shellT = mat.wall + 0.6;
   const nav = F.kp && !disp.none && !disp.seg ? 10 : 0;
-  let W, H, T, Hface, screenRect = null, keypadRect = null, openH = 0, stackUsed = dStack + shellT, lidT = 0;
-  // custom body size (mm, 0 = fit the parts): a wider or taller body spreads the same parts thinner,
-  // extra thickness leaves spare room, and keypads grow with the body
-  const sz = spec.size || {}, wantW = +sz.w || 0, wantH = +sz.h || 0, wantT = +sz.t || 0;
+  let W, H, T, Hface, screenRect = null, keypadRect = null, openH = 0, stackUsed = dStack + shellT, lidT = 0, faceH = 0;
+  // target body size (mm, 0 = fit the parts). A wider or taller body spreads the same parts thinner, extra
+  // thickness leaves spare room, keypads grow with the body. Thinner than the parts need: the body grows
+  // taller to make room – or, if the height is fixed too, the parts don't fit.
+  const sz = spec.size || {}, wantW = +sz.w || 0, wantH = +sz.h || 0, wantT = handset ? 0 : +sz.t || 0;
   // where the player dragged the screen and keypad (mm from their default spots, +y = up). Moving one
   // towards an edge shrinks that margin down to a minimum; pushing them into each other grows the body.
   const pl = spec.place || {}, sx = +pl.sx || 0, sy = +pl.sy || 0, kx = +pl.kx || 0, ky = +pl.ky || 0;
@@ -719,7 +742,7 @@ function evalPhone(spec, t, chip) {
     autoW = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
     foreP = Math.max(4, G.fore - sy); chinP = Math.max(3, G.chin + 2 + ky);
     autoH = Math.max(G.fore + mh + 6 + kpH + G.chin, foreP + mh + 2 + kpH + chinP);
-    W = Math.max(autoW, wantW); H = Math.max(autoH, wantH);
+    W = Math.max(autoW, wantW); H = Math.max(autoH, wantH); faceH = autoH;
     growKeys(autoW, autoH);
     T = G.minT;
   } else if (form === 'brick' || form === 'candybar' || form === 'qwerty' || form === 'slider') {
@@ -729,10 +752,12 @@ function evalPhone(spec, t, chip) {
     let H0;
     if (sliderBody) { chinP = Math.max(2, G.chin + 4 + sy); H0 = Math.max(G.fore + mh + G.chin + 4, foreP + mh + chinP); }
     else { chinP = Math.max(2, G.chin + 2 + ky); H0 = Math.max(G.fore + mh + 5 + kpH + G.chin, foreP + mh + 1.5 + kpH + chinP); }
-    W = Math.max(autoW, wantW);
+    W = Math.max(autoW, wantW); faceH = H0;
     const stackT = Math.max(dStack, F.kp ? 2.5 : 0) + shellT + (sliderBody ? 3.5 : 0);
     [autoH] = fitBody(autoW, H0, internal, stackT, G, fill, fit);
-    [H, T] = fitBody(W, Math.max(H0, wantH), internal, stackT, G, fill, fit);
+    // a fixed height stays fixed: the body gets thicker instead of taller
+    if (wantH) { H = Math.max(H0, wantH); T = Math.max(G.minT, internal * 1000 / (W * H * fill) + stackT); }
+    else [H, T] = fitBody(W, H0, internal, stackT, G, fill, fit);
     if (!sliderBody) growKeys(autoW, Math.max(H0, autoH));
     stackUsed = stackT;
   } else if (form === 'flip') {
@@ -740,12 +765,15 @@ function evalPhone(spec, t, chip) {
     W = Math.max(autoW, wantW);
     foreP = Math.max(3, G.fore - sy); chinP = Math.max(2, G.chin + 4 + ky);
     const Hmin = Math.max(G.fore + mh + 6, kpH + G.chin + 8, foreP + mh + 3, chinP + kpH + 3);
+    faceH = Hmin;
     // the lid holds the display, the earpiece and a little electronics; the keypad half the rest
     const lid = Math.min(internal * 0.25, 1.5 + internal * 0.08), base = internal - lid;
     [autoH] = fitBody(autoW, Hmin, base, 2 + shellT, G, fill, fit);
-    const [H0, Tb] = fitBody(W, Math.max(Hmin, wantH), base, 2 + shellT, G, fill, fit);
-    lidT = lid * 1000 / (W * H0 * fill) + dStack + shellT;
-    H = H0; T = Math.max(G.minT, Tb + lidT); openH = H0 * 2;
+    let Tb;
+    if (wantH) { H = Math.max(Hmin, wantH); Tb = Math.max(G.minT, base * 1000 / (W * H * fill) + 2 + shellT); }
+    else [H, Tb] = fitBody(W, Hmin, base, 2 + shellT, G, fill, fit);
+    lidT = lid * 1000 / (W * H * fill) + dStack + shellT;
+    T = Math.max(G.minT, Tb + lidT);
     growKeys(autoW, autoH);
     stackUsed = 2 + shellT + dStack + shellT;
   } else {
@@ -754,7 +782,7 @@ function evalPhone(spec, t, chip) {
     const dy = form === 'fold' ? 0 : sy;
     foreP = Math.max(1.2, fore - dy); chinP = Math.max(1.2, navk.chin, Math.max(chin, navk.chin) + dy);
     autoW = Math.max(form === 'fold' ? 0 : 40, disp.w + 2 * side);
-    autoH = disp.h + foreP + chinP;
+    autoH = disp.h + foreP + chinP; faceH = autoH;
     H = Math.max(autoH, wantH);
     if (form === 'fold') {
       const Wopen = Math.max(autoW, wantW * 2 - 2.4);
@@ -767,14 +795,43 @@ function evalPhone(spec, t, chip) {
       T = Math.max(G.minT, internal * 1000 / (W * H * fill) + dStack + shellT);
     }
   }
-  const fitT = T;
-  if (!F.handset && wantT > T) T = wantT;
+  // ---- does everything fit? Every part takes room, and nothing gets thinner than its tallest part ----
+  const Wi = form === 'fold' ? W - 1.2 : W;                // a foldable spreads its parts over both halves
+  const roomAt = (h, tt) => Wi * h * Math.max(0, tt - stackUsed) * fill / 1000;   // cm³ inside
+  const chipZ = chipSpace(chip).z, batZ = batteryZ(bp), boardZ = 0.7 + chipZ;
+  const Tabs = handset ? T : stackUsed + Math.max(boardZ, batZ) * (form === 'fold' ? 2 : 1);
+  const tallest = batZ > boardZ ? 'battery cell' : 'board with the processor';
+  if (!handset && T < Tabs) T = Tabs;
+  const fitT = T;                                           // what the parts need at this width and height
+  let short = 0, grewBy = 0;
+  if (wantT && wantT >= T) T = wantT;
+  else if (wantT && wantT < Tabs - 0.05) issues.push(`A ${wantT.toFixed(1)} mm body is too thin: the ${tallest} alone needs ${Tabs.toFixed(1)} mm. Pick a thinner battery or a smaller chip, or make it thicker.`);
+  else if (wantT && !wantH) {
+    // thinner than the parts need: the body grows taller until they fit
+    const Hn = internal * 1000 / (Wi * Math.max(0.05, wantT - stackUsed) * fill);
+    grewBy = Math.max(0, Hn - H);
+    H += grewBy; T = Math.max(wantT, Tabs);
+    if (form === 'flip') lidT = (lidT - dStack - shellT) * (H - grewBy) / H + dStack + shellT;
+    if (!isKeypadForm(form) && form !== 'car' && form !== 'bag') foreP += grewBy / 2;      // even bezels above and below
+    if (H > Math.max(faceH, autoH || 0) * 1.25 + 10) issues.push(`At ${wantT.toFixed(1)} mm the parts only fit a ${Math.round(H)} mm tall body – pick smaller parts or allow more thickness.`);
+  } else if (wantT) {
+    short = internal - roomAt(H, wantT);
+    issues.push(`The parts don't fit a ${wantT.toFixed(1)} mm body of this size: ${short.toFixed(1)} cm³ short (it needs ${fitT.toFixed(1)} mm). Make it thicker, taller or wider – or pick smaller parts.`);
+  }
+  if (form === 'flip') openH = H * 2;
   // ports & jacks set a minimum thickness
   const port = PORTS[spec.port] || PORTS.barrel, jack = JACKS[spec.jack] || JACKS.none;
   const needT = Math.max(port.minT || 0, jack.minT || 0);
-  if (needT > T && !handset) { notes.push(`+${(needT - T).toFixed(1)} mm thicker to fit the ${needT === jack.minT ? jack.name : port.name}`); T = needT; }
+  if (needT > T && !handset) {
+    const what = needT === jack.minT ? jack.name : port.name;
+    if (wantT) issues.push(`The ${what} needs a ${needT.toFixed(1)} mm thick body.`);
+    else notes.push(`+${(needT - T).toFixed(1)} mm thicker to fit the ${what}`);
+    T = needT;
+  }
   // room the parts don't use (cm³): a bigger battery would fit without growing the body
-  const spareVol = handset ? 0 : Math.max(0, W * H * Math.max(0, T - stackUsed) * fill / 1000 * (form === 'fold' ? 2 : 1) - internal);
+  const room = handset ? 0 : roomAt(H, T);
+  const spareVol = handset ? 0 : Math.max(0, room - internal);
+  if (bodyUp.t && !handset) T += bodyUp.t;                  // rugged armor goes on the outside
   // camera bump
   const inside = T - dStack - shellT + 1.0;
   const bump = Math.max(0, camZ - inside);
@@ -809,7 +866,9 @@ function evalPhone(spec, t, chip) {
   if (F.hinge) weight += form === 'fold' ? 18 : 6;
   // ---- heat, power, battery life ----
   const footprint = W * H;
-  const thermBudget = handset ? 10 : Math.max(0.8, 2.0 + 0.17 * (t - 2008)) * mat.therm * Math.pow(footprint / 7000, 0.35);
+  // heat the body can shed: bigger and thicker bodies (and better cooling) keep a hot chip at full speed
+  const thickF = clamp(Math.pow(T / 9, 0.5), 0.7, 1.3);
+  const thermBudget = handset ? 10 : Math.max(0.8, 2.0 + 0.17 * (t - 2008)) * mat.therm * Math.pow(footprint / 7000, 0.35) * thickF * bodyUp.therm;
   const chipPower = chip ? chip.power : 0.5;
   const sustain = Math.min(1, Math.pow(thermBudget / Math.max(0.01, chipPower), 0.6));
   let extrasPower = 0;
@@ -817,7 +876,7 @@ function evalPhone(spec, t, chip) {
   if (feat.gps) extrasPower += 0.02;
   if (feat.bt) extrasPower += 0.01;
   const camPower = Object.values(camStats).reduce((a, c) => a + c.power, 0) * 0.08;
-  const avgPower = interp(BASE_POWER, t) + (radio ? radio.power * 0.5 : 0.5) + disp.power + chipPower * 0.12 + mem.power + camPower + extrasPower + addPower + (needDsp ? 0.05 : 0);
+  const avgPower = interp(BASE_POWER, t) + (radio ? radio.power * 0.5 : 0.5) + disp.power + chipPower * 0.12 + mem.power + camPower + extrasPower + addPower + bodyUp.power + (needDsp ? 0.05 : 0);
   const hours = form === 'car' ? null : bat ? bat.wh / avgPower * (addons.includes('solar') ? 1.04 : 1) : 0;
   // ---- network ----
   const peakFn = s => stdPeak(s, rp);
@@ -831,7 +890,8 @@ function evalPhone(spec, t, chip) {
   const os = OS[spec.os] || OS.none;
   const touchOk = disp.touch;
   let pts = (os.needsTouch && !touchOk ? os.pts * 0.4 : os.pts) + (FINGERPRINT[feat.fp] || FINGERPRINT.none).pts + sim.pts + (port.pts || 0) + (jack.pts || 0) + (spec.sd ? 3 : 0)
-    + 2 * Math.log2(1 + mem.storageMB) + (chip && chip.media ? 3 : 0) + (camStats.front ? 3 : 0) + (touchOk ? 3 : 0) + water.q * 20 + (bat && bat.wireless ? 3 : 0);
+    + 2 * Math.log2(1 + mem.storageMB) + (chip && chip.media ? 3 : 0) + (camStats.front ? 3 : 0) + (touchOk ? 3 : 0) + (water.q + bodyUp.water) * 20 + (bat && bat.wireless ? 3 : 0)
+    + NAV_HOME[navk.home].pts + NAV_KEYS[navk.keys].pts + bodyUp.pts;
   for (const [key, , label, p] of EXTRAS) {
     if (!feat[key]) continue;
     let ok = true;
@@ -857,11 +917,12 @@ function evalPhone(spec, t, chip) {
   for (const e of lay.errors) issues.push(e);
   // ---- design ----
   const stb = screenRect ? (disp.w * disp.h) / (W * Hface) : 0;
-  const drop = mat.drop * Math.sqrt(disp.none ? 0.9 : disp.drop) * (water.q ? 1.05 : 1);
+  const drop = Math.min(1.25, mat.drop * Math.sqrt(disp.none ? 0.9 : disp.drop) * (water.q ? 1.05 : 1) * bodyUp.drop);
   const extAnt = radio && radio.ext ? (radio.antLen > 100 ? 0.93 : 0.98) : 1;
   const bumpF = bump > 0 ? Math.max(0.85, 1 - bump * 0.025) : 1;
   const edgeF = spec.style && spec.style.edge === 'round' ? 1.02 : spec.style && spec.style.edge === 'chamfer' ? 1.015 : 1;
-  const style = mat.q * fin.q * (1 + water.q) * lay.score * (0.7 + 0.3 * drop) * Math.pow(Math.max(0.05, stb), 0.35) * extAnt * bumpF * edgeF * addDesign;
+  const style = mat.q * fin.q * (1 + water.q + bodyUp.water) * lay.score * (0.7 + 0.3 * drop) * Math.pow(Math.max(0.05, stb), 0.35) * extAnt * bumpF * edgeF * addDesign
+    * bodyUp.q * NAV_KEYS[navk.keys].design;
   if (bump > 0.5) notes.push(`− ${bump.toFixed(1)} mm camera bump`);
   // ---- performance raw ----
   const pixels = disp.res[0] * disp.res[1];
@@ -880,10 +941,10 @@ function evalPhone(spec, t, chip) {
   }
   const raw = {
     cpu: perfCpu, gpu: perfGpu, ai: chip ? chip.tops : 0, ram: mem.ramMB, stor: mem.speed * refineMul('memory', spec, t),
-    cam: camScore * refineMul('camera', spec, t), disp: disp.score * (0.45 + 0.55 * (disp.none ? 0 : sizeScore(form, dp.size, t))) * refineMul('display', spec, t), dispSize: dp ? dp.size : 0,
+    cam: camScore * refineMul('camera', spec, t), disp: disp.score * (0.45 + 0.55 * (disp.none ? 0 : sizeScore(form, dp.size, t))) * refineMul('display', spec, t) * NAV_KEYS[navk.keys].disp, dispSize: dp ? dp.size : 0,
     hours: hours == null ? hours : hours * refineMul('battery', spec, t), charge: bat ? bat.chargeMin : null, car: form === 'car',
     speed: cov.speed * sig * refineMul('network', spec, t), gen: liveGen, sig,
-    weight: totalWeight, vol: volume, style, form,
+    weight: totalWeight, vol: volume, thick: T, style, form,
     feat: pts,
   };
   // ---- unit costs (before supplier/contract markups) ----
@@ -896,7 +957,7 @@ function evalPhone(spec, t, chip) {
   costs.body = mat.cost * decl(0.03, techMarket(mat.tech), t, 0.6) * earlyMul(techMarket(mat.tech), t) * Math.pow(fp2, 0.7) * (form === 'car' ? 2 : 1)
     + water.cost + fin.cost + F.cost * decl(0.06, F.tech ? techMarket(F.tech) : FIRST_YEAR, t, 0.4) + (F.kp === 'num' ? 3 : F.kp === 'qwerty' ? 6 : 0)
     + (port.cost || 0) + (jack.cost || 0) + sim.cost + (spec.sd ? 0.8 : 0) + featCost + (needDsp ? 8 * decl(0.1, 1991, t, 0.2) : 0)
-    + addCost;                                            // add-ons are part of "body, keys & features"
+    + addCost + bodyUp.cost + NAV_HOME[navk.home].cost + NAV_KEYS[navk.keys].cost;   // add-ons & upgrades are part of "body, keys & features"
   costs.addons = addCost;                                 // (already included in costs.body)
   costs.os = os.fee * decl(0.04, techMarket(os.tech), t, 0.5);
   costs.chip = chip && chip.kind === 'vendor' ? vendorChipPrice(chip, t) : null;
@@ -935,7 +996,9 @@ function evalPhone(spec, t, chip) {
     weight: totalWeight, handsetWeight: weight, volume, thick: T,
     parts: { disp, cams: camStats, bat, mem, radio }, integrated, needDsp, coverage, netSpeed: raw.speed, gen: liveGen,
     layout: lay, lay: resolved, elecVol: elec, internal, res: disp.res, dims: { w: W, h: H, t: T },
-    sizing: { autoW, autoH, fitT, spareVol, custom: !!(wantW || wantH || wantT) },
+    sizing: { autoW, autoH, faceH, fitT, Tabs, tallest, spareVol, short, grewBy, room, custom: !!(wantW || wantH || wantT), want: { w: wantW, h: wantH, t: wantT } },
+    space: { battery: batVol, board: handset ? 0 : boardVol, chip: handset ? 0 : chipVol, memory: handset ? 0 : mem.volume, cameras: camVol, other: extraVol, total: internal, room, chipZ, batZ },
+    bodyUp,
     addons, addonCost: addCost,
   };
 }
@@ -948,7 +1011,8 @@ function blankSpec(cat) {
     cat, form: cat === 'tablet' ? 'slate' : 'car', name: '', color: BODY_COLORS[0], price: 1999, int: 0,
     body: { mat: 'plastic', water: 'none', finish: 'gloss' },
     style: { radius: 0.5, edge: 'round', island: 'auto', logo: '', accent: '', front: 'black', keys: 'classic', keyTone: 'auto' },
-    size: { w: 0, h: 0, t: 0 },
+    size: { w: 0, h: 0, t: 0 }, place: { sx: 0, sy: 0, kx: 0, ky: 0 }, nav: { home: 'auto', keys: 'auto' },
+    up: { frame: 'none', cooling: 'none', rugged: 'none', texture: 'plain', coating: 'none', framefin: 'match', logostyle: 'print' },
     display: null, cams: { main: null, ultra: null, tele: null, front: null }, flash: 'none',
     battery: null, memory: null, radio: null, chip: { kind: 'vendor', id: '' },
     os: 'none', feat: { fp: 'none' }, port: 'barrel', jack: 'none', sim: 'none', sd: false, layout: [], addons: {},
@@ -1080,8 +1144,8 @@ function rivalSpec(cat, seg, t, rival, ok, regions) {
 // ============================================================================
 //  EXPECTATIONS: smooth curves of what a flagship delivers, metric by metric
 // ============================================================================
-const EXPECT_KEYS = ['cpu', 'gpu', 'ai', 'ram', 'stor', 'cam', 'disp', 'hours', 'charge', 'speed', 'gen', 'weight', 'vol', 'style', 'feat'];
-const LOWER_BETTER = { weight: 1, vol: 1, charge: 1 };
+const EXPECT_KEYS = ['cpu', 'gpu', 'ai', 'ram', 'stor', 'cam', 'disp', 'hours', 'charge', 'speed', 'gen', 'weight', 'vol', 'thick', 'style', 'feat'];
+const LOWER_BETTER = { weight: 1, vol: 1, thick: 1, charge: 1 };
 const MONOTONIC = { cpu: 1, gpu: 1, ai: 1, ram: 1, stor: 1, cam: 1, disp: 1, speed: 1, gen: 1, feat: 1 };
 const _expect = {};
 function buildExpectations(cat) {
@@ -1167,11 +1231,14 @@ function subscores(raw, cat, t) {
   // design
   const refForm = expectForm(cat, t);
   const appeal = formAppeal(raw.form, t) / formAppeal(refForm, t);
-  const design = 100 * (raw.style / E('style')) * Math.pow(E('weight') / raw.weight, 0.45) * Math.pow(E('vol') / raw.vol, 0.22) * appeal;
+  const design = 100 * (raw.style / E('style')) * Math.pow(E('vol') / raw.vol, 0.12) * appeal;
+  // thinness and lightness: their own categories (fashions come and go)
+  const slim = raw.thick > 0 && E('thick') > 0 ? 100 * E('thick') / raw.thick : 100;
+  const light = 100 * E('weight') / Math.max(1, raw.weight);
   // features
   const eFeat = E('feat');
   const feat = eFeat >= 1 ? 100 * raw.feat / eFeat : 100 + Math.min(30, raw.feat * 5);
-  const s = { perf, cam, disp, batt, net, design, feat };
+  const s = { perf, cam, disp, batt, net, design, slim, light, feat };
   for (const k in s) s[k] = Math.max(0, s[k]);
   return s;
 }
@@ -1180,29 +1247,35 @@ function subscores(raw, cat, t) {
 const TRENDS = [
   { id: 'status', title: 'Executive status symbol', start: 1977.5, end: 1980.5, k: { design: 0.5 }, segs: ['premium', 'ultra'], desc: 'A phone in the car is the ultimate executive accessory: looks matter.' },
   { id: 'yuppie', title: 'Yuppie boom', start: 1985, end: 1988.5, k: { design: 0.45, net: 0.25 }, segs: ['premium', 'ultra'], demand: 1.06, desc: 'Brick phones are the power accessory of Wall Street: style and reliable coverage sell.' },
-  { id: 'pocket', title: 'Pocket-size craze', start: 1993, end: 1996, k: { design: 0.5, batt: 0.2 }, desc: 'Everyone wants a phone that disappears into a pocket.' },
+  { id: 'pocket', title: 'Pocket-size craze', start: 1993, end: 1996, k: { light: 0.5, slim: 0.25, design: 0.15, batt: 0.2 }, desc: 'Everyone wants a phone that disappears into a pocket.' },
+  { id: 'feather', title: 'Featherweight phones', start: 1997, end: 1999.5, k: { light: 0.6 }, segs: ['mid', 'premium', 'ultra'], desc: 'Under 100 grams is the new status symbol.' },
   { id: 'snake', title: 'Snake on every phone', start: 1998, end: 2000.5, k: { feat: 0.45 }, segs: ['budget', 'mid'], desc: 'Built-in games are the hit of the year.' },
   { id: 'sms', title: 'Texting boom', start: 1999.5, end: 2002.5, k: { feat: 0.35, batt: 0.2 }, desc: 'Teenagers send hundreds of texts a day: keyboards, features and stamina sell.' },
   { id: 'color', title: 'Color screen fever', start: 2002, end: 2004, k: { disp: 0.5 }, desc: 'Monochrome screens suddenly look ancient.' },
   { id: 'camera', title: 'Camera phone boom', start: 2003.5, end: 2006, k: { cam: 0.6 }, desc: 'Snap, send, share: everyone wants a camera in their phone.' },
+  { id: 'thin', title: 'Thin is in', start: 2004.5, end: 2007.3, k: { slim: 0.8, design: 0.2 }, desc: 'Razor-thin clamshells are on every red carpet: buyers want the slimmest phone.' },
   { id: 'music', title: 'Mobile music craze', start: 2005.5, end: 2007.5, k: { feat: 0.35, perf: 0.15, batt: 0.2 }, desc: 'Music phones take on MP3 players: storage, features and battery life.' },
   { id: 'apps', title: 'App store gold rush', start: 2008.5, end: 2011, k: { perf: 0.4, feat: 0.3, disp: 0.15 }, segs: ['mid', 'premium', 'ultra'], desc: 'Apps for everything: fast phones with big touchscreens win.' },
   { id: 'gaming', title: 'Mobile gaming explosion', start: 2010.5, end: 2013, k: { perf: 0.55, disp: 0.25, batt: 0.15 }, demand: 1.04, desc: 'Casual hits keep the whole world tapping: performance and screens sell phones.' },
+  { id: 'chunky', title: 'Battery-first backlash', start: 2011, end: 2013, k: { batt: 0.35, slim: -0.4 }, desc: 'Smartphones die by lunchtime: buyers happily take a thicker phone that lasts.' },
   { id: 'phablet', title: 'Phablet boom', start: 2012.5, end: 2015, k: { disp: 0.45, batt: 0.2 }, desc: 'Bigger screens are suddenly what everybody wants.' },
   { id: 'selfie', title: 'Selfie craze', start: 2013.5, end: 2016, k: { cam: 0.45 }, segs: ['budget', 'mid', 'premium'], desc: 'Front cameras and photo quality are the talk of social media.' },
+  { id: 'thinrace', title: 'Thinnest-phone race', start: 2014, end: 2016.3, k: { slim: 0.6, design: 0.15 }, segs: ['mid', 'premium', 'ultra'], desc: 'Makers shave every tenth of a millimetre: thinness headlines every launch.' },
+  { id: 'compact', title: 'Compact revival', start: 2017.6, end: 2019.2, k: { light: 0.45, slim: 0.15 }, segs: ['budget', 'mid', 'premium'], desc: 'Phones got huge and heavy: small, light phones are cool again.' },
   { id: 'arcraze', title: 'AR game craze', start: 2016.5, end: 2017.6, k: { batt: 0.4, perf: 0.25, net: 0.2 }, desc: 'Millions walk the streets catching monsters – batteries drain fast.' },
   { id: 'esports', title: 'Mobile esports', start: 2018, end: 2021, k: { perf: 0.5, disp: 0.3, batt: 0.2 }, demand: 1.03, desc: 'Battle royales go mobile: high frame rates and long sessions.' },
   { id: '5g', title: '5G hype', start: 2019.5, end: 2021.5, k: { net: 0.6 }, segs: ['mid', 'premium', 'ultra'], desc: 'Carriers market 5G everywhere: buyers want to be future-proof.' },
   { id: 'wfh', title: 'Work & school from home', start: 2020.2, end: 2021.8, k: { cam: 0.3, batt: 0.25, disp: 0.15 }, desc: 'Video calls all day: front cameras and stamina matter.' },
   { id: 'creator', title: 'Short-video creator boom', start: 2021.5, end: 2024, k: { cam: 0.45, disp: 0.2 }, desc: 'Everyone is a creator: video quality sells phones.' },
   { id: 'ai', title: 'AI phone hype', start: 2023.8, end: 2026.5, k: { perf: 0.5, feat: 0.3 }, segs: ['premium', 'ultra'], desc: 'On-device AI is the new must-have: buyers want NPUs and smart features.' },
+  { id: 'air', title: 'Ultra-thin flagships', start: 2025.4, end: 2027.2, k: { slim: 0.6, light: 0.25 }, segs: ['premium', 'ultra'], desc: 'Paper-thin flagships are the talk of the year.' },
   { id: 'longevity', title: 'Battery anxiety', start: 2025, end: 2027.5, k: { batt: 0.5 }, desc: 'Buyers keep phones longer and want them to last all day – and for years.' },
   { id: 'foldfash', title: 'Foldable fashion', start: 2028.5, end: 2031, k: { design: 0.45, disp: 0.25 }, segs: ['premium', 'ultra'], desc: 'Folding phones become the style statement of the decade.' },
   { id: 'satnet', title: 'Satellite everywhere', start: 2031.5, end: 2033.5, k: { net: 0.5 }, desc: 'Direct-to-phone satellites make coverage the selling point.' },
   { id: 'holo', title: 'Holo-gaming wave', start: 2034, end: 2036.5, k: { perf: 0.5, disp: 0.35 }, demand: 1.03, desc: 'Glasses-free 3D games: the fastest chips and screens win.' },
   { id: 'health', title: 'Health-tracking boom', start: 2037, end: 2039.5, k: { feat: 0.45, batt: 0.2 }, desc: 'Phones become personal doctors: sensors and features sell.' },
   { id: 'lens', title: 'Pro-camera arms race', start: 2040, end: 2042.5, k: { cam: 0.55 }, segs: ['mid', 'premium', 'ultra'], desc: 'Phones replace the last dedicated cameras.' },
-  { id: 'light', title: 'Ultra-light fashion', start: 2043, end: 2045.5, k: { design: 0.5 }, desc: 'The lightest, thinnest phone is what everybody wants.' },
+  { id: 'light', title: 'Ultra-light fashion', start: 2043, end: 2045.5, k: { light: 0.55, slim: 0.35 }, desc: 'The lightest, thinnest phone is what everybody wants.' },
 ];
 const easeEdge = x => clamp(x, 0, 1) * clamp(x, 0, 1) * (3 - 2 * clamp(x, 0, 1));
 const trendLevel = (tr, t) => easeEdge((t - tr.start) / 0.5) * easeEdge((tr.end - t) / 0.5);   // eases in and out over ~6 months
@@ -1218,7 +1291,7 @@ function segWeights(seg, t) {
   const w = interp(ERA_WEIGHTS, t), tilt = SEG_INFO[seg].tilt;
   let tot = 0;
   const out = {};
-  for (const k in w) { out[k] = w[k] * tilt[k] * (1 + trendBoost(k, seg, t)); tot += out[k]; }
+  for (const k in w) { out[k] = w[k] * tilt[k] * Math.max(0.2, 1 + trendBoost(k, seg, t)); tot += out[k]; }
   for (const k in out) out[k] /= tot;
   return out;
 }

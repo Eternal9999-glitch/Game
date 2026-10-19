@@ -34,13 +34,65 @@ function stdPartOk(type, p, role, d) {
   if (type === 'display' && d && formOf(d) === 'fold' && !p.fold) return false;
   return true;
 }
+// the techs a supplier model needs that you haven't researched yet
+const stdPartMissing = (type, p, role) => PART_TECHS[type](p, role).filter(id => TECH[id] && !playerAv().std(id));
+const partKey = (type, d, role) => catalogKey(type, formOf(d), d.cat, role);
+// a supplier part from the catalogs: the model closest to `like` (or the mainstream pick); falls back to a
+// built-to-order standard part when nobody sells one yet
+function stdRef(type, d, role, like, vendor) {
+  const x = catalogClosest(type, partKey(type, d, role), now(), like || null, p => stdPartOk(type, p, role, d), vendor);
+  if (x) return { src: 'std', p: clone(x.p), vid: x.id };
+  const p = stdBuilder(type, d, role);
+  return p && stdPartOk(type, p, role, d) ? { src: 'std', p } : null;
+}
+// ---- what a part does and the room it takes (for supplier lists) ----
+function partPerf(type, st) {
+  switch (type) {
+    case 'display': case 'camera': return st.score;
+    case 'battery': return st.wh;
+    case 'memory': return Math.log2(1 + st.ramMB) + 0.5 * Math.log2(1 + st.storageMB) + st.speed / 2000;
+    case 'radio': return st.peak;
+  }
+  return 0;
+}
+const camVolOf = st => st.footprint[0] * st.footprint[1] * st.z / 1000;
+function partRoom(type, st) {
+  switch (type) {
+    case 'display': return st.stack;
+    case 'camera': return camVolOf(st);
+    case 'battery': return st.volume;
+    case 'memory': return st.volume;
+    case 'radio': return st.vol;
+  }
+  return 0;
+}
+function partPerfLine(type, p, st) {
+  switch (type) {
+    case 'display': return p.emit === 'none' ? 'No display' : `${p.size.toFixed(1)}" ${DISP_EMIT[p.emit].name.replace(' liquid crystal', ' LCD')}${st.seg ? '' : ` · ${st.ppi} ppi · ${st.hz} Hz`} · ${Math.round(st.nits)} nits · DisplayMark ${Math.round(st.score)}`;
+    case 'camera': return `${p.mp} MP ${CAM_FORMATS[p.fmt].name} f/${p.ap}${p.ois !== 'none' ? ' · OIS' : ''} · CameraMark ${Math.round(st.score)}`;
+    case 'battery': return `${p.mah.toLocaleString('en-US')} mAh · ${st.wh.toFixed(1)} Wh · ${CHEM[p.chem].name} · ${Math.round(st.chargeW)} W${p.wireless !== 'none' ? ' · wireless' : ''}`;
+    case 'memory': return `${fmtMB(st.ramMB)} RAM · ${st.storageMB ? fmtMB(st.storageMB) : 'no'} storage · ${DRAM_GENS[p.gen].name}${st.speed ? ' · ' + Math.round(st.speed) + ' MB/s' : ''}`;
+    case 'radio': return `${p.stds.map(x => NET_STDS[x].short).join(' + ')} · ${p.bands} band${p.bands === 1 ? '' : 's'} · ${fmtSpeed(st.peak)}`;
+  }
+  return '';
+}
+function partRoomLine(type, p, st, d) {
+  switch (type) {
+    case 'display': return `${st.stack.toFixed(1)} mm thick · ${Math.round(st.w)}×${Math.round(st.h)} mm · ${Math.round(st.weight)} g`;
+    case 'camera': return `${st.footprint[0].toFixed(0)}×${st.footprint[1].toFixed(0)}×${st.z.toFixed(1)} mm tall · ${camVolOf(st).toFixed(2)} cm³`;
+    case 'battery': return `${st.volume.toFixed(1)} cm³ · cells ≥${st.z.toFixed(1)} mm · ${Math.round(st.weight)} g`;
+    case 'memory': return `${st.volume.toFixed(2)} cm³ · ${st.pkgs} package${st.pkgs === 1 ? '' : 's'}`;
+    case 'radio': return `board ${(ELECTRONICS_BASE * integrationFactor(d && d.int != null ? d.int : 0) * st.vol).toFixed(1)} cm³ · ${st.power.toFixed(2)} W`;
+  }
+  return '';
+}
 function sanitizeDraft(d) {
   const av = playerAv(), t = now();
   // older drafts kept add-ons only as layout parts
   if (!d.addons) { d.addons = {}; for (const e of d.layout || []) if (LEGACY_ADDONS.includes(e.t)) d.addons[e.t] = true; }
   const blank = blankSpec(d.cat);
   for (const k in blank) if (d[k] == null) d[k] = clone(blank[k]);
-  for (const k of ['body', 'style', 'cams', 'feat', 'size']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
+  for (const k of ['body', 'style', 'cams', 'feat', 'size', 'place', 'nav', 'up']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
   if (d.cat === 'tablet') d.form = 'slate';
   else if (!FORMS[d.form] || d.form === 'slate' || !av.ok(FORMS[d.form].tech)) d.form = bestForm(av.std, t);
   const f = formOf(d);
@@ -50,12 +102,17 @@ function sanitizeDraft(d) {
     const vs = vendorChipsAvailable(t).sort((a, b) => b.cpu - a.cpu);
     d.chip = { kind: 'vendor', id: (vs.find(c => c.tier !== 'flagship') || vs[0] || VENDOR_CHIPS[0]).id };
   }
-  // parts: keep own designs that exist, rebuild supplier parts that are no longer sellable
+  // parts: keep own designs that exist; supplier parts must be a model on sale today that fits this body
   const fixRef = (ref, type, role) => {
-    if (ref && ref.src === 'own') return S.designs.some(x => x.id === ref.id) ? ref : { src: 'std', p: stdBuilder(type, d, role) };
-    if (ref && ref.src === 'std' && stdPartOk(type, ref.p, role, d)) return ref;
-    const p = stdBuilder(type, d, role);
-    return p ? { src: 'std', p } : null;
+    if (ref && ref.src === 'own') return S.designs.some(x => x.id === ref.id) ? ref : stdRef(type, d, role);
+    if (ref && ref.src === 'std') {
+      const x = catalogItem(ref.vid);
+      if (x && x.key === partKey(type, d, role) && x.release <= t && t < x.release + CATALOG_LIFE && stdPartOk(type, ref.p, role, d)) return ref;
+      // discontinued, made for another body, or an old built-to-order part: the closest model on sale
+      const v = catalogVendor(ref.vid);
+      return stdRef(type, d, role, ref.p, v && v.id) || (stdPartOk(type, ref.p, role, d) ? { src: 'std', p: ref.p } : null);
+    }
+    return stdRef(type, d, role);
   };
   d.display = fixRef(d.display, 'display');
   if (f === 'car') d.battery = null; else d.battery = fixRef(d.battery, 'battery');
@@ -74,6 +131,9 @@ function sanitizeDraft(d) {
   const fin = FINISHES[d.body.finish];
   if (!fin || !av.ok(fin.tech) || (fin.metalOnly && !MATERIALS[d.body.mat].metal) || (fin.glassOnly && !['glass', 'steel', 'ceramic', 'ti'].includes(d.body.mat))) d.body.finish = 'gloss';
   if (!FINGERPRINT[d.feat.fp] || !av.ok(FINGERPRINT[d.feat.fp].tech)) d.feat.fp = 'none';
+  for (const k in BODY_UPGRADES) { const o = BODY_UPGRADES[k][d.up[k]]; if (!o || !av.ok(o.tech)) d.up[k] = Object.keys(BODY_UPGRADES[k])[0]; }
+  if (d.nav.home !== 'auto' && (!NAV_HOME[d.nav.home] || !av.ok(NAV_HOME[d.nav.home].tech))) d.nav.home = 'auto';
+  if (d.nav.keys !== 'auto' && (!NAV_KEYS[d.nav.keys] || !av.ok(NAV_KEYS[d.nav.keys].tech))) d.nav.keys = 'auto';
   for (const [k, id] of EXTRAS) if (d.feat[k] && !av.ok(id)) d.feat[k] = false;
   if (!OS[d.os] || !av.ok(OS[d.os].tech)) d.os = 'none';
   if (f === 'car' || f === 'bag') d.port = 'cord';
@@ -105,7 +165,7 @@ function suggestPrice(d) {
 
 // ---- the lab --------------------------------------------------------------------------------
 const PhoneLab = {
-  name: 'Phone Lab', icon: '📱', live: false, tab: 'body', partMode: {}, sel: null,
+  name: 'Phone Lab', icon: '📱', live: false, tab: 'body', partMode: {}, catVendor: {}, catSort: {}, camOpen: 'main', sel: null,
   render(el) {
     if (!S.draft) S.draft = defaultDraft('phone', now());
     sanitizeDraft(S.draft);
@@ -218,11 +278,20 @@ const PhoneLab = {
       ${segBtn('edge', [{ v: 'round', label: 'Rounded edges' }, { v: 'flat', label: 'Flat sides' }, { v: 'chamfer', label: 'Chamfered' }], d.style.edge)}
       <h3>Size</h3>${this.sizeCtl(d, pc)}
       <h3>Water resistance</h3>${optCards('body.water', Object.entries(WATER).map(([k, w]) => ({ v: k, title: w.name, tech: w.tech })), d.body.water)}
+      ${this.upgradeCards(d)}
       <h3>Board integration</h3>
       <select id="intSel" class="full">${ints.map(x => `<option value="${x.i}" ${x.i === d.int ? 'selected' : ''}>${x.name}${x.id !== 'int_discrete' && !av.market(x.id) ? ' ◆' : ''}</option>`).join('')}</select>
       <div class="tiny faint mt-s">Electronics take up <b>${pc.ev.elecVol.toFixed(0)} cm³</b>. Every integration step shrinks them – that's what turns a car-trunk radio into a pocket phone.</div>
       ${nextInt ? `<div class="mt-s">${lockFoot(techUI(nextInt[0]))}</div>` : ''}
-      <h3>Logo</h3><input type="text" data-path="style.logo" value="${esc(d.style.logo || '')}" placeholder="${esc(S.company.split(' ')[0].toUpperCase())}" maxlength="14" class="full">`;
+      <h3>Logo</h3><input type="text" data-path="style.logo" value="${esc(d.style.logo || '')}" placeholder="${esc(S.company.split(' ')[0].toUpperCase())}" maxlength="14" class="full">
+      <div class="mt-s">${optCards('up.logostyle', Object.entries(LOGO_STYLES).map(([k, o]) => ({ v: k, title: o.name, sub: o.desc, tech: o.tech })), d.up.logostyle, 4)}</div>`;
+  },
+  // frames, cooling, ruggedness, textures, coatings and frame finishes
+  upgradeCards(d) {
+    const t = now(), price = o => (o.cost ? ' · ' + fmtMoney(o.cost * decl(0.08, o.tech ? techMarket(o.tech) : 2000, t, 0.3)) : '');
+    const eff = o => [o.therm && o.therm !== 1 ? `heat ×${o.therm.toFixed(2)}` : '', o.drop && o.drop !== 1 ? `toughness ×${o.drop.toFixed(2)}` : '', o.wt ? `${o.wt > 0 ? '+' : ''}${o.wt} g` : '', o.vol ? `${o.vol} cm³` : '', o.t ? `+${o.t} mm` : ''].filter(Boolean).join(' · ');
+    const sec = (k, title, cols) => `<h3>${title}</h3>${optCards('up.' + k, Object.entries(BODY_UPGRADES[k]).map(([v, o]) => ({ v, title: o.name, sub: [o.desc, eff(o)].filter(Boolean).join(' ') + price(o), tech: o.tech })), d.up[k], cols || 2)}`;
+    return sec('frame', 'Inner frame') + sec('cooling', 'Cooling') + sec('rugged', 'Ruggedness', 3) + sec('texture', 'Back texture', 3) + sec('coating', 'Coating') + sec('framefin', 'Frame finish', 3);
   },
   layout(d, pc) {
     const ev = pc.ev, lay = ev.lay;
@@ -237,6 +306,7 @@ const PhoneLab = {
         <div class="tiny dim">${LAYOUT_TYPES[sel.t].desc}</div>
         <div class="tiny faint mt-s">On the <b>${sel.f}</b> face · allowed: ${LAYOUT_TYPES[sel.t].faces.join(', ')}</div>
         <label class="chk small mt-s"><input type="checkbox" id="elAuto" ${d.layout.find(e => e.t === sel.t).auto !== false ? 'checked' : ''}> Let engineers place it automatically</label></div>` : '<div class="tiny faint mt">Click an element to see where it works best.</div>'}
+      ${this.placeCtl(d, ev)}
       <h3>Ergonomics <span class="faint">${Math.round(ev.layout.score * 100)} / 100</span></h3>
       ${ev.layout.notes.length ? ev.layout.notes.map(n => `<div class="tiny warn">${esc(n)}</div>`).join('') : '<div class="tiny good">Everything is where hands and faces expect it.</div>'}
       <h3>Ports</h3>
@@ -246,8 +316,23 @@ const PhoneLab = {
       <div class="mt-s">${toggleCard('sd', 'Memory card slot', 'microSD on an edge or under the cover', 'feat_sd', d.sd)}</div>
       <h3>Camera island</h3>${segBtn('island', [{ v: 'auto', label: 'Auto' }, { v: 'square', label: 'Square' }, { v: 'circle', label: 'Circle' }, { v: 'bar', label: 'Bar' }, { v: 'none', label: 'Flush lenses' }], d.style.island)}`;
   },
+  // drag the screen and keypad around the front (mm from their default spots)
+  placeCtl(d, ev) {
+    const f = formOf(d), F = FORMS[f], pl = d.place || {}, touch = !isKeypadForm(f) && f !== 'car' && f !== 'bag';
+    const sl = (k, label, min, max) => `<div class="cap"><div class="row between"><span class="dim small">${label}</span><b class="mono" data-show="place.${k}">${(+pl[k] || 0).toFixed(1)} mm</b></div>
+      <input type="range" data-path="place.${k}" data-num min="${min}" max="${max}" step="0.5" value="${+pl[k] || 0}"></div>`;
+    const nav = touch && f !== 'fold' ? `<h3>Navigation</h3>
+      <div class="tiny faint mb-s">Now: ${NAV_HOME[ev.geom.nav.home].name} · ${NAV_KEYS[ev.geom.nav.keys].name}. A home button or keys need a chin below the screen.</div>
+      ${segBtn('navhome', [{ v: 'auto', label: 'Auto' }].concat(Object.entries(NAV_HOME).map(([k, o]) => ({ v: k, label: o.name.replace(' home button', ''), disabled: o.tech && !playerAv().ok(o.tech), title: o.tech ? techUI(o.tech).msg || TECH[o.tech].desc : '' }))), d.nav.home)}
+      <div class="mt-s">${segBtn('navkeys', [{ v: 'auto', label: 'Auto' }].concat(Object.entries(NAV_KEYS).map(([k, o]) => ({ v: k, label: o.name.replace(' (home button only)', '').replace('On-screen navigation bar', 'On-screen bar').replace('Gesture navigation', 'Gestures'), disabled: o.tech && !playerAv().ok(o.tech), title: o.tech ? techUI(o.tech).msg || TECH[o.tech].desc : '' }))), d.nav.keys)}</div>` : '';
+    if (f === 'fold' || (!ev.geom.screenRect && !F.kp)) return nav;
+    return `<h3>Screen & keypad position</h3><div class="tiny faint mb-s">Move them around the front. Pushing them apart grows the body; margins never go below what the parts need.</div>
+      ${ev.geom.screenRect ? sl('sy', 'Screen ↕ (up +)', -12, 20) + sl('sx', 'Screen ↔', -12, 12) : ''}
+      ${F.kp && f !== 'slider' ? sl('ky', 'Keypad ↕ (up +)', -10, 20) + sl('kx', 'Keypad ↔', -12, 12) : ''}
+      ${['sx', 'sy', 'kx', 'ky'].some(k => +pl[k]) ? '<button class="btn sm" data-placereset="1">↺ Default positions</button>' : ''}${nav}`;
+  },
   screen(d) {
-    return this.partSwitch('display', d) + (this.mode('display', d) === 'own' ? this.ownList('display', d, null) : this.stdScreen(d));
+    return this.partSwitch('display', d) + (this.mode('display', d) === 'own' ? this.ownList('display', d, null) : this.catalogList('display', d));
   },
   camera(d) {
     const av = playerAv();
@@ -261,48 +346,57 @@ const PhoneLab = {
       const own = S.designs.filter(x => x.type === 'camera' && x.status === 'ready');
       let body = '';
       if (ref) {
-        const st = evalCamera(p, now(), role);
+        const st = evalCamera(p, now(), role), x = ref.src === 'std' ? catalogItem(ref.vid) : null;
         body = `<div class="row wrap mt-s"><select data-camsrc="${role}"><option value="std" ${ref.src === 'std' ? 'selected' : ''}>Supplier module</option>${own.map(x => `<option value="${x.id}" ${ref.src === 'own' && ref.id === x.id ? 'selected' : ''}>${esc(x.name)} (yours)</option>`).join('')}</select>
-          <span class="tiny faint">CameraMark ${Math.round(st.score)} · ${st.effMP.toFixed(1)} eff. MP</span></div>`;
-        if (ref.src === 'std') {
-          let fmtMax = 0; CAM_FORMAT_TECH.forEach((id, i) => { if (av.std(id)) fmtMax = i; });
-          const mps = CAM_MP.filter((m, i) => av.std(CAM_MP_TECH[i]) && (m < 40 || CAM_SENSOR[p.sensor].bin));
-          body += `<div class="row wrap mt-s"><select data-cam="${role}.fmt" data-num>${CAM_FORMATS.map((f, i) => `<option value="${i}" ${i === p.fmt ? 'selected' : ''} ${i > fmtMax ? 'disabled' : ''}>${f.name} sensor</option>`).join('')}</select>
-            <select data-cam="${role}.mp" data-num>${mps.map(m => `<option value="${m}" ${m === p.mp ? 'selected' : ''}>${m} MP</option>`).join('')}</select>
-            ${role !== 'front' ? `<label class="chk small"><input type="checkbox" data-camois="${role}" ${p.ois !== 'none' ? 'checked' : ''} ${av.std('cam_ois') ? '' : 'disabled'}> OIS</label>` : ''}
-            <span class="tiny ${st.pitch < 1 && !st.binned ? 'warn' : 'faint'}">${st.pitch.toFixed(2)} µm pixels · f/${p.ap} · ${p.lens} elements</span></div>`;
-          body += st.rules.filter(r => r.err).map(r => `<div class="tiny bad">⛔ ${esc(r.text)}</div>`).join('');
-        }
+          <span class="tiny faint">${x ? '<b>' + esc(x.name) + '</b> · ' : ''}${esc(partPerfLine('camera', p, st))} · 📦 ${esc(partRoomLine('camera', p, st, d))}</span>
+          ${ref.src === 'std' ? `<button class="btn sm" data-camopen="${role}">${this.camOpen === role ? 'Hide models' : 'Choose model…'}</button>` : ''}</div>`;
+        if (ref.src === 'std' && this.camOpen === role) body += `<div class="mt-s">${this.catalogList('camera', d, role)}</div>`;
       }
       return `<div class="cam-slot ${ref ? '' : 'off'}">${toggleCard('cam.' + role, CAM_ROLES[role].name, role === 'tele' ? 'Optical zoom' : role === 'ultra' ? 'Wide-angle shots' : role === 'front' ? 'Video calls & selfies' : 'Your main shooter', roleTech, !!ref, dis)}${u.ok ? body : ''}</div>`;
     };
     return `${['main', 'front', 'ultra', 'tele'].map(slot).join('')}
       ${d.cams.main ? `<h3>Flash</h3>${optCards('flash', Object.entries(FLASHES).map(([k, f]) => ({ v: k, title: f.name, tech: f.tech })), d.flash)}` : ''}
-      <div class="tiny faint mt-s">Supplier modules use standard lenses. Design your own in the 🛠️ Parts Lab: bigger apertures, more lens elements, sensor-shift stabilization, exclusive sensors.</div>`;
+      <div class="tiny faint mt-s">Taller modules make a camera bump on thin phones. Design your own in the 🛠️ Parts Lab: bigger apertures, more lens elements, sensor-shift stabilization, exclusive sensors.</div>`;
   },
-  // body size sliders: the minimum is what the parts need; anything above is your call
+  // body size: every dimension is auto (fits the parts) or a target. Thinner than the parts need makes the
+  // body taller; with the height fixed too, the parts must fit – or you pick smaller ones.
   sizeCtl(d, pc) {
-    const ev = pc.ev, z = ev.sizing, g = ev.geom, hand = !!FORMS[formOf(d)].handset, sz = d.size || {};
-    const sl = (k, label, min, max, cur) => `<div class="cap"><div class="row between"><span class="dim small">${label}</span><b class="mono" data-show="size.${k}">${sz[k] ? cur.toFixed(1) + ' mm' : 'auto · ' + cur.toFixed(1) + ' mm'}</b></div>
-      <input type="range" data-path="size.${k}" data-num min="${min.toFixed(1)}" max="${max.toFixed(1)}" step="0.5" value="${Math.max(min, sz[k] || min).toFixed(1)}">
-      <div class="row between tiny faint"><span>fits the parts</span><span>+${(max - min).toFixed(0)} mm</span></div></div>`;
-    const bat = d.battery && d.battery.src === 'std' ? partParams(d.battery) : null, st = bat ? evalBattery(bat, now()) : null;
-    const addMah = st ? Math.floor(z.spareVol * (st.wh / st.volume) * 1000 / VOLTAGE / 50) * 50 : 0;
-    const capMax = bat ? batteryCap(formOf(d), d.cat, playerAv().std) : 0;
-    return `<div class="tiny faint mb-s">The body fits around the parts. Make it wider or taller and the same parts spread thinner${isKeypadForm(formOf(d)) ? ' and the keys grow' : ''}; make it thicker for spare room. Bigger bodies weigh more but shed more heat.</div>
-      ${sl('w', 'Width', z.autoW, z.autoW + 20, g.W)}
-      ${sl('h', 'Height', z.autoH, z.autoH + 40, g.H)}
-      ${hand ? '' : sl('t', 'Thickness', z.fitT, z.fitT + 8, g.T)}
-      <div class="row wrap mt-s">${z.custom ? '<button class="btn sm" data-act="autosize">↺ Fit to parts</button>' : ''}
-        ${!hand && z.spareVol >= 0.5 ? `<span class="tiny dim">Spare room: <b>${z.spareVol.toFixed(1)} cm³</b></span>` : ''}
-        ${addMah >= 50 && bat.mah < capMax ? `<button class="btn sm" data-act="fillbat">🔋 Fill it: +${Math.min(addMah, capMax - bat.mah).toLocaleString('en-US')} mAh</button>` : addMah >= 50 && bat ? '<span class="tiny faint">(battery is at its research limit)</span>' : ''}</div>`;
+    const ev = pc.ev, z = ev.sizing, g = ev.geom, F = FORMS[formOf(d)], hand = !!F.handset, sz = d.size || {};
+    const sl = (k, label, min, max, cur, note) => {
+      const set = +sz[k] > 0, val = clamp(set ? +sz[k] : cur, min, max);
+      return `<div class="cap"><div class="row between"><span class="dim small">${label}</span>
+          <span class="row" style="gap:6px"><b class="mono" data-show="size.${k}">${set ? (+sz[k]).toFixed(1) + ' mm' : 'auto · ' + cur.toFixed(1) + ' mm'}</b>${set ? `<button class="btn xs" data-sizeauto="${k}" title="Let the parts decide">auto</button>` : ''}</span></div>
+        <input type="range" data-path="size.${k}" data-num min="${min.toFixed(1)}" max="${max.toFixed(1)}" step="0.1" value="${val.toFixed(1)}">
+        <div class="row between tiny faint"><span>${note}</span><span>${max.toFixed(0)} mm</span></div></div>`;
+    };
+    const Hmin = z.faceH || g.H, Hmax = Math.max(z.autoH || 0, g.H, Hmin) + 40;
+    const Tmin = Math.ceil(z.Tabs * 10) / 10, Tmax = Math.max(z.fitT, g.T, Tmin) + 8;
+    const big = !hand ? this.biggerBattery(d, ev) : null;
+    return `<div class="tiny faint mb-s">Set any dimension, or leave it on auto. Go thinner than the parts need and the body grows taller; fix the height too and the parts must fit – or pick smaller ones. Thin bodies shed less heat.</div>
+      ${sl('w', 'Width', z.autoW, z.autoW + 25, g.W, `min ${z.autoW.toFixed(1)} · screen${F.kp ? ' & keys' : ''}`)}
+      ${sl('h', 'Height', Hmin, Hmax, g.H, `min ${Hmin.toFixed(1)} · front face`)}
+      ${hand ? '' : sl('t', 'Thickness', Tmin, Tmax, g.T, `min ${Tmin.toFixed(1)} · ${z.tallest}`)}
+      ${z.short > 0 ? `<div class="note bad">⛔ ${z.short.toFixed(1)} cm³ of parts don't fit – they need ${z.fitT.toFixed(1)} mm at this size.</div>` : ''}
+      ${z.grewBy > 0.5 ? `<div class="tiny warn">↕ ${z.grewBy.toFixed(0)} mm taller than the front needs, to fit the parts at this thickness.</div>` : ''}
+      ${hand ? '<div class="tiny faint mt-s">The electronics live in the car unit, not the handset.</div>' : this.spaceBars(ev)}
+      <div class="row wrap mt-s">${z.custom ? '<button class="btn sm" data-act="autosize">↺ All auto</button>' : ''}
+        ${big ? `<button class="btn sm" data-act="fillbat">🔋 Biggest battery that fits: ${esc(big.name)} (+${(big.p.mah - d.battery.p.mah).toLocaleString('en-US')} mAh)</button>` : ''}</div>`;
+  },
+  // where the room inside goes
+  spaceBars(ev) {
+    const s = ev.space, cap = Math.max(s.room, s.total, 0.01);
+    const parts = [['🔋 Battery', s.battery], ['🧠 Processor', s.chip], ['🔌 Board & radio', s.board], ['💾 Memory', s.memory], ['📷 Cameras', s.cameras], ['✨ Other', s.other]];
+    return `<div class="space mt-s"><div class="row between tiny"><b>Room inside</b><span class="mono ${s.total > s.room + 0.05 ? 'bad' : ''}">${s.total.toFixed(1)} of ${s.room.toFixed(1)} cm³ used</span></div>
+      <div class="space-bar">${parts.map(([l, v], i) => `<span class="sp${i}" style="width:${(v / cap * 100).toFixed(2)}%" title="${l}: ${v.toFixed(1)} cm³"></span>`).join('')}</div>
+      <div class="tiny dim">${parts.filter(x => x[1] >= 0.05).map(([l, v]) => `${l} ${v.toFixed(1)}`).join(' · ')}${s.room > s.total + 0.05 ? ` · free ${(s.room - s.total).toFixed(1)}` : ''} cm³</div>
+      <div class="tiny faint">Tallest inside: battery cells ${s.batZ.toFixed(1)} mm · board + processor ${(s.chipZ + 0.7).toFixed(1)} mm</div></div>`;
   },
   battery(d) {
     if (formOf(d) === 'car') return '<div class="note">Car phones run off the car\'s 12 V battery – no cells needed.</div>';
-    return this.partSwitch('battery', d) + (this.mode('battery', d) === 'own' ? this.ownList('battery', d) : this.stdBattery(d));
+    return this.partSwitch('battery', d) + (this.mode('battery', d) === 'own' ? this.ownList('battery', d) : this.catalogList('battery', d));
   },
-  memory(d) { return this.partSwitch('memory', d) + (this.mode('memory', d) === 'own' ? this.ownList('memory', d) : this.stdMemory(d)) + `<div class="mt">${toggleCard('sd', 'Memory card slot', 'Expandable storage', 'feat_sd', d.sd)}</div>`; },
-  radio(d, pc) { return this.partSwitch('radio', d) + (this.mode('radio', d) === 'own' ? this.ownList('radio', d) : this.stdRadio(d)) + this.coverage(pc); },
+  memory(d) { return this.partSwitch('memory', d) + (this.mode('memory', d) === 'own' ? this.ownList('memory', d) : this.catalogList('memory', d)) + `<div class="mt">${toggleCard('sd', 'Memory card slot', 'Expandable storage', 'feat_sd', d.sd)}</div>`; },
+  radio(d, pc) { return this.partSwitch('radio', d) + (this.mode('radio', d) === 'own' ? this.ownList('radio', d) : this.catalogList('radio', d)) + this.coverage(pc); },
   chip(d, pc) {
     const t = now();
     const rows = [];
@@ -315,10 +409,15 @@ const PhoneLab = {
     const ev = pc.ev;
     return `${ev.integrated ? '<div class="note good mb-s">📶 Baseband integrated in the chip: cheaper, smaller radio.</div>' : ev.gen >= 1 ? '<div class="note mb-s">Separate baseband chip (the processor has no compatible modem block).</div>' : ''}
       ${ev.needDsp ? '<div class="note warn mb-s">Digital radio needs a DSP: an extra DSP chip is added (cost, power, volume). Pick a chip with a DSP or modem block.</div>' : ''}
-      <div class="chip-cards">${rows.map(r => `<div class="ocard ${sel === r.key ? 'on' : ''}" data-chip="${r.key}">
+      <div class="tiny faint mb-s">Performance is what the chip delivers at full speed; in this ${ev.geom.T.toFixed(1)} mm body it can shed ${ev.thermBudget.toFixed(1)} W before it throttles. 📦 is the room it takes on the board.</div>
+      <div class="chip-cards">${rows.map(r => {
+        const sp = chipSpace(r.c), sus = Math.min(1, Math.pow(ev.thermBudget / Math.max(0.01, r.c.power), 0.6));
+        return `<div class="ocard ${sel === r.key ? 'on' : ''}" data-chip="${r.key}">
         <div class="row between"><div class="oc-t">${r.custom ? '💠 ' : ''}${esc(r.c.name)}</div><b class="mono">${fmtMoney(r.price)}</b></div>
-        <div class="oc-s mono">${nodeLabel(r.c.nm)} · CPU ${fmtSci(r.c.cpu)} · GPU ${r.c.gpu ? fmtSci(r.c.gpu) : '—'}${r.c.tops ? ' · AI ' + r.c.tops.toFixed(1) : ''} · ${r.c.power.toFixed(2)} W${r.c.hasModem ? ' · ' + GEN_LABEL(r.c.modemGen) + ' modem' : ''}${r.c.dsp ? ' · DSP' : ''}</div>
-        ${r.custom ? '<span class="oc-ex">your design</span>' : `<span class="tag">${r.c.tier}</span>`}</div>`).join('')}</div>
+        <div class="oc-s mono">⚡ CPU ${fmtSci(r.c.cpu)} · GPU ${r.c.gpu ? fmtSci(r.c.gpu) : '—'}${r.c.tops ? ' · AI ' + r.c.tops.toFixed(1) : ''} · ${nodeLabel(r.c.nm)}${r.c.hasModem ? ' · ' + GEN_LABEL(r.c.modemGen) + ' modem' : ''}${r.c.dsp ? ' · DSP' : ''}</div>
+        <div class="oc-s mono">📦 ${sp.vol.toFixed(1)} cm³ · ${sp.z.toFixed(1)} mm tall · ${r.c.area} mm² die · ${r.c.power.toFixed(2)} W <span class="${sus < 0.8 ? 'warn' : sus < 0.999 ? '' : 'good'}">${sus >= 0.999 ? '· full speed here' : `· ${Math.round(sus * 100)}% sustained here`}</span></div>
+        ${r.custom ? '<span class="oc-ex">your design</span>' : `<span class="tag">${r.c.tier}</span>`}</div>`;
+      }).join('')}</div>
       ${this.chipPitch(t)}`;
   },
   // what designing your own processor would save, in this year's money
@@ -356,7 +455,7 @@ const PhoneLab = {
   },
   partSwitch(type, d) {
     const n = S.designs.filter(x => x.type === type).length;
-    return `<div class="row between mb-s">${segBtn('src-' + type, [{ v: 'std', label: `Supplier part (${SUPPLIERS[type]})` }, { v: 'own', label: `Your designs (${n})` }], this.mode(type, d))}
+    return `<div class="row between mb-s">${segBtn('src-' + type, [{ v: 'std', label: `Suppliers (${PART_VENDORS[type].length} companies)` }, { v: 'own', label: `Your designs (${n})` }], this.mode(type, d))}
       <button class="btn sm" data-golab="${type}">🛠️ ${PART_INFO[type].lab}</button></div>`;
   },
   ownList(type, d) {
@@ -373,83 +472,40 @@ const PhoneLab = {
         ${x.status === 'ready' ? '' : `<span class="oc-lock">engineering · ${Math.max(0, x.readyDay - S.day)} days</span>`}</div>`;
     }).join('') + '</div><div class="tiny faint mt-s">Your designs cost what they cost to make: ×1.22 at contract part makers, ×1.0 in your own plant – vs ×1.45 for supplier parts.</div>';
   },
-  stdScreen(d) {
-    const p = partParams(d.display), av = playerAv(), f = formOf(d);
-    if (!p || p.emit === 'none') return '<div class="note">Dial-only handset: no display.</div>' + (av.std('disp_led') ? '<button class="btn sm mt-s" data-act="stddisp">Add a display</button>' : '');
-    const st = evalDisplay(p, now());
-    const combos = DISP_COMBOS.filter(([e, m]) => av.has(DISP_EMIT[e].tech) && av.has(DISP_MATRIX[m].tech));
-    const keypad = isKeypadForm(f);
-    const sizeLadder = f === 'slate' ? TABLET_SIZE_CAPS : DISP_SIZE_CAPS;
-    const sizeMax = Math.min(f === 'slate' ? ladderCap(TABLET_SIZE_CAPS, av.std) : ladderCap(DISP_SIZE_CAPS, av.std), p.matrix === 'segment' ? 2.2 : p.matrix === 'passive' ? 2.8 : 99, f === 'fold' ? 8.1 : 99);
-    const ppiMax = Math.min(ladderCap(PPI_CAPS, av.std), DISP_MATRIX[p.matrix].ppiMax || 0);
-    return `<h3>Panel</h3>${optCards('dispcombo', combos.map(([e, m]) => ({ v: e + ':' + m, title: m === 'asi' && e === 'lcd' ? 'TFT LCD' : DISP_EMIT[e].name.replace(' liquid crystal', ' LCD') + (m !== 'segment' && !(e === 'oled' || e === 'tandem') ? '' : ''),
-        sub: DISP_MATRIX[m].name, tech: av.std(DISP_EMIT[e].tech) ? DISP_MATRIX[m].tech : DISP_EMIT[e].tech, tip: DISP_EMIT[e].desc + ' ' + DISP_MATRIX[m].desc })), p.emit + ':' + p.matrix, 2, 'std')}
-      ${p.matrix !== 'segment' ? `<div class="mt-s">${toggleCard('disp.color', 'Color', p.emit === 'oled' || p.emit === 'tandem' ? 'OLED is always color' : 'Red/green/blue color filters', 'disp_color', !!p.color || DISP_EMIT[p.emit].emissive, DISP_EMIT[p.emit].emissive ? 'Built in' : null, 'std')}</div>` : ''}
-      ${capSlider('disp.size', 'Screen size', 0.6, Math.max(0.7, sizeMax), 0.1, p.size, v => (+v).toFixed(1) + '"', sizeLadder, 1, 'std')}
-      <div class="tiny faint">Buyers want about ${prefSize(f, now()).toFixed(1)}" on a ${FORMS[f].name.toLowerCase()} right now.</div>
-      ${p.matrix !== 'segment' ? capSlider('disp.ppi', 'Pixel density', 60, Math.max(70, ppiMax), 10, p.ppi, v => v + ' ppi', PPI_CAPS, 1, 'std') + `<div class="tiny faint">${st.res[0]} × ${st.res[1]} px · ${Math.round(st.nits)} nits</div>` : ''}
-      <h3>Aspect</h3><select id="aspectSel" class="full">${ASPECTS.map(a => `<option value="${a.a}" ${Math.abs(a.a - p.aspect) < 0.01 ? 'selected' : ''}>${a.name} (${a.a})</option>`).join('')}</select>
-      ${DISP_EMIT[p.emit].emissive ? '' : `<h3>Backlight</h3>${optCards('disp.bl', Object.entries(DISP_BL).map(([k, b]) => ({ v: k, title: b.name, tech: b.tech, tip: b.desc })), p.bl, 3, 'std')}`}
-      ${p.matrix !== 'segment' ? `<h3>Touch</h3>${optCards('disp.touch', Object.entries(DISP_TOUCH).map(([k, v]) => ({ v: k, title: v.name, tech: v.tech, disabled: keypad || k === 'none' ? null : null })), p.touch, 2, 'std')}` : ''}
-      <h3>Cover</h3>${optCards('disp.cover', DISP_COVER_ORDER.map(k => ({ v: k, title: DISP_COVER[k].name, tech: DISP_COVER[k].tech })), p.cover, 2, 'std')}
-      ${keypad ? '' : `<h3>Refresh rate</h3>${optCards('disp.hz', REFRESH.map(r => ({ v: r.hz, title: r.hz + ' Hz', tech: r.tech })), p.hz, 4, 'std')}
-      <h3>Shape</h3>${optCards('disp.shape', DISP_SHAPE_ORDER.map(k => ({ v: k, title: DISP_SHAPE[k].name, tech: DISP_SHAPE[k].tech })), p.shape, 2, 'std')}`}
-      ${st.rules.length ? st.rules.map(r => `<div class="tiny ${r.err ? 'bad' : 'warn'} mt-s">${r.err ? '⛔' : '⚠️'} ${esc(r.text)}</div>`).join('') : ''}`;
+  // every supplier's models on sale for this body: what each does, the room it takes and its price
+  catalogList(type, d, role) {
+    const t = now(), ref = type === 'camera' ? d.cams[role] : d[type], vend = PART_VENDORS[type], sm = supplyMul();
+    const fv = this.catVendor[type] || 'all', sort = this.catSort[type] || 'new';
+    let rows = catalogOnSale(type, partKey(type, d, role), t).map(x => {
+      const st = PART_EVAL[type](x.p, t, role), v = catalogVendor(x.id);
+      return { x, st, v, ok: stdPartOk(type, x.p, role, d), price: st.cost * v.mk * sm, room: partRoom(type, st), perf: partPerf(type, st) };
+    });
+    if (!rows.length) return `<div class="note">Nobody sells a ${PART_INFO[type].name.toLowerCase()} for this kind of device yet.</div>`;
+    if (fv !== 'all') rows = rows.filter(r => r.x.vendor === fv);
+    rows.sort({ new: (a, b) => b.x.release - a.x.release, perf: (a, b) => b.perf - a.perf, small: (a, b) => a.room - b.room, cheap: (a, b) => a.price - b.price }[sort]);
+    const cur = ref && ref.src === 'std' ? catalogItem(ref.vid) : null, cst = cur ? PART_EVAL[type](cur.p, t, role) : null;
+    return `${cur ? `<div class="note mb-s">Fitted: <b>${esc(cur.name)}</b> ’${String(Math.floor(cur.release)).slice(2)} from ${esc(cur.vname)} · ${esc(partPerfLine(type, cur.p, cst))} · 📦 ${esc(partRoomLine(type, cur.p, cst, d))}</div>` : ''}
+      <div class="row wrap mb-s" style="gap:6px">${segBtn('catv-' + type, [{ v: 'all', label: 'All makers' }].concat(vend.map(v => ({ v: v.id, label: v.name.split(' ')[0], title: v.desc }))), fv)}
+        <select data-catsort="${type}">${[['new', 'Newest first'], ['perf', 'Best first'], ['small', 'Smallest first'], ['cheap', 'Cheapest first']].map(([k, l]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="tiny faint mb-s">${fv === 'all' ? vend.map(v => `<b>${esc(v.name)}</b> – ${esc(v.desc)}`).join('<br>') : esc(vend.find(v => v.id === fv).desc)}</div>
+      <div class="chip-cards">${rows.map(r => this.catCard(type, role, r, cur ? cur.id : null, d)).join('')}</div>
+      <div class="tiny faint mt-s">Every company releases a new range each year; models stay on sale for ${CATALOG_LIFE} years. 📦 is the room a part takes inside the body.</div>`;
   },
-  stdBattery(d) {
-    const p = partParams(d.battery), av = playerAv(), f = formOf(d);
-    const st = evalBattery(p, now());
-    const cap = batteryCap(f, d.cat, av.std);
-    return `${capSlider('bat.mah', 'Capacity', f === 'bag' ? 1500 : 300, cap, 50, p.mah, v => (+v).toLocaleString('en-US') + ' mAh', BAT_CAPS, f === 'bag' ? 6 : d.cat === 'tablet' ? 2.2 : 1, 'std')}
-      <div class="tiny faint">${st.wh.toFixed(1)} Wh · ${st.volume.toFixed(1)} cm³ · ${Math.round(st.weight)} g. Bigger batteries make the device thicker and heavier.</div>
-      <h3>Chemistry</h3>${optCards('bat.chem', CHEM_ORDER.map(k => ({ v: k, title: CHEM[k].name, sub: `${CHEM[k].whl} Wh/L · ${CHEM[k].whkg} Wh/kg`, tech: CHEM[k].tech, tip: CHEM[k].desc })), p.chem, 2, 'std')}
-      <h3>Charging</h3>${optCards('bat.charge', CHARGE.map(c => ({ v: c.w, title: c.w + ' W', tech: c.tech })), p.charge, 4, 'std')}
-      <div class="tiny faint">0–100% in ~${Math.round(st.chargeMin)} min (the cells accept up to ${Math.round(st.maxW)} W).</div>
-      <h3>Wireless charging</h3>${optCards('bat.wireless', Object.entries(WIRELESS).map(([k, w]) => ({ v: k, title: w.name, tech: w.tech })), p.wireless, 2, 'std')}`;
+  catCard(type, role, r, cur, d) {
+    const { x, st, v } = r, miss = r.ok ? [] : stdPartMissing(type, x.p, role);
+    return `<div class="ocard ${cur === x.id ? 'on' : ''} ${r.ok ? '' : 'locked'}" ${r.ok ? `data-cat="${type}|${role || ''}|${x.id}"` : ''} title="${esc(v.name + ' – ' + v.desc)}">
+      <div class="row between"><div class="oc-t">${esc(x.name)} <span class="faint tiny">’${String(Math.floor(x.release)).slice(2)}</span>${x.tag ? ` <span class="tag">${esc(x.tag)}</span>` : ''}</div><b class="mono">${fmtMoney(r.price)}</b></div>
+      <div class="oc-s">${esc(partPerfLine(type, x.p, st))}</div>
+      <div class="oc-s mono">📦 ${esc(partRoomLine(type, x.p, st, d))}</div>
+      ${r.ok ? '' : `<span class="oc-lock">🔒 needs ${esc(miss.slice(0, 2).map(id => TECH[id].name).join(', '))}${miss.length > 2 ? '…' : ''}</span>`}</div>`;
   },
-  memOptions(kind) {
-    const av = playerAv();
-    const dies = kind === 'ram' ? DRAM_DIES : FLASH_DIES;
-    const avail = dies.map((v, i) => i).filter(i => i > 0 && av.std(kind === 'ram' ? 'dram_' + i : 'fl_' + i));
-    const maxN = Math.max(ladderCap(STACK_CAPS, av.std), now() < 1999 ? 8 : 1);
-    const opts = new Map();
-    for (const i of avail.slice(-4)) for (const n of [1, 2, 4, 8, 16]) {
-      if (n > maxN) continue;
-      const mb = dies[i] * n / 8;
-      if (!opts.has(mb) || opts.get(mb).n > n) opts.set(mb, { i, n, mb });
-    }
-    if (kind === 'ram' && !avail.length) opts.set(DRAM_DIES[0] / 8, { i: 0, n: 1, mb: DRAM_DIES[0] / 8 });
-    return [...opts.values()].sort((a, b) => a.mb - b.mb).slice(-10);
-  },
-  stdMemory(d) {
-    const p = partParams(d.memory);
-    const ram = this.memOptions('ram'), sto = this.memOptions('flash');
-    const curR = DRAM_DIES[p.ramDie] * p.ramN / 8, curS = FLASH_DIES[p.flDie] * p.flN / 8;
-    const st = evalMemory(p, now());
-    return `<h3>RAM <span class="faint">${DRAM_GENS[p.gen].name}</span></h3>${optCards('memram', ram.map(o => ({ v: o.i + ':' + o.n, title: fmtMB(o.mb), sub: `${o.n}× ${fmtMB(DRAM_DIES[o.i] / 8)} die` })), ram.find(o => o.mb === curR) ? ram.find(o => o.mb === curR).i + ':' + ram.find(o => o.mb === curR).n : '', 3)}
-      <h3>Storage <span class="faint">${p.flDie ? FLASH_NAMES[p.flDie] : ''}</span></h3>${sto.length ? optCards('memsto', [{ v: '0:0', title: 'None', sub: 'no user storage' }].concat(sto.map(o => ({ v: o.i + ':' + o.n, title: fmtMB(o.mb), sub: `${o.n}× ${fmtMB(FLASH_DIES[o.i] / 8)} die` }))), p.flDie ? (sto.find(o => o.mb === curS) || { i: p.flDie, n: p.flN }).i + ':' + (sto.find(o => o.mb === curS) || { n: p.flN }).n : '0:0', 3) : '<div class="tiny faint">No non-volatile memory yet (EEPROM arrives in 1983).</div>'}
-      <div class="tiny faint mt-s">Bandwidth ${st.bw >= 1 ? st.bw.toFixed(1) + ' GB/s' : Math.round(st.bw * 1000) + ' MB/s'} · storage ${st.speed ? Math.round(st.speed) + ' MB/s' : '—'} · ${st.pkgs} package${st.pkgs === 1 ? '' : 's'} · ${fmtMoney(st.cost * SUPPLIER_MARKUP)}</div>`;
-  },
-  stdRadio(d) {
-    const p = partParams(d.radio), av = playerAv(), f = formOf(d);
-    const vehicle = f === 'car' || f === 'bag';
-    const groups = {};
-    for (const s of NET_ORDER) { const g = Math.floor(NET_STDS[s].gen); (groups[g] = groups[g] || []).push(s); }
-    const st = evalRadio(p, now(), false);
-    const bandCap = ladderCap(BAND_CAPS, av.std);
-    return `<h3>Network standards</h3><div class="tiny faint mb-s">Each carrier runs its own standards. Support more to sell in more places – every extra radio adds cost.</div>
-      ${Object.keys(groups).map(g => `<div class="std-row"><span class="tag">${GEN_LABEL(+g)}</span>${groups[g].map(s => {
-        const n = NET_STDS[s];
-        const u = techUI(n.tech, 'std');
-        const dis = !u.ok || (n.vehicle && !vehicle);
-        const inUse = standardsInUse(now()).includes(s);
-        return `<label class="chk small ${dis ? 'disabled' : ''}" title="${esc((n.vehicle && !vehicle ? 'Needs a car/bag phone transmitter. ' : '') + (u.ok ? '' : u.msg || '') + (n.needs ? ' Requires ' + NET_STDS[n.needs].name + '.' : ''))}"><input type="checkbox" data-std="${s}" ${p.stds.includes(s) ? 'checked' : ''} ${dis ? 'disabled' : ''}> ${n.short}${inUse ? '' : ' <span class="faint">(no network)</span>'}${n.niche ? ' <span class="faint">niche</span>' : ''}</label>`;
-      }).join('')}</div>`).join('')}
-      ${capSlider('radio.bands', 'RF bands', 1, bandCap, 1, p.bands, v => v + ' bands', BAND_CAPS, 1, 'std')}
-      <div class="tiny faint">A phone needs about ${Math.round(interp(BANDS_NEEDED, now()))} bands to work everywhere today.</div>
-      <h3>Antenna</h3>${optCards('radio.ant', Object.entries(ANTENNAS).map(([k, a]) => ({ v: k, title: a.name, sub: a.desc, tech: a.tech })), p.ant, 2, 'std')}
-      <div class="tiny faint mt-s">${fmtSpeed(radioPeak(p))} peak · ${st.power.toFixed(2)} W · ${fmtMoney(st.cost * SUPPLIER_MARKUP)}</div>
-      ${st.rules.map(r => `<div class="tiny ${r.err ? 'bad' : 'warn'}">${r.err ? '⛔' : '⚠️'} ${esc(r.text)}</div>`).join('')}`;
+  // the biggest supplier battery that fits the room the parts leave
+  biggerBattery(d, ev) {
+    const ref = d.battery;
+    if (!ref || ref.src !== 'std' || ev.sizing.short > 0) return null;
+    const t = now(), cur = evalBattery(ref.p, t), room = cur.volume + ev.sizing.spareVol - 0.05, free = ev.geom.T - (ev.sizing.Tabs - Math.max(ev.space.batZ, ev.space.chipZ + 0.7));
+    const fits = catalogOnSale('battery', partKey('battery', d), t).filter(x => stdPartOk('battery', x.p, null, d) && x.p.mah > ref.p.mah && evalBattery(x.p, t).volume <= room && batteryZ(x.p) <= free);
+    return fits.sort((a, b) => b.p.mah - a.p.mah)[0] || null;
   },
   coverage(pc) {
     const ev = pc.ev, reg = regionShares(now());
@@ -649,13 +705,13 @@ const PhoneLab = {
     if (type === 'camera') d.cams[role] = ref; else d[type] = ref;
   },
   setForm(f) {
-    const d = S.draft, av = playerAv(), was = formOf(d);
+    const d = S.draft, was = formOf(d);
     d.form = f;
     // re-fit supplier parts to the new body
-    if (d.display && d.display.src === 'std') d.display = { src: 'std', p: stdDisplay(f, d.cat, now(), av.std, 2) };
+    if (d.display && d.display.src === 'std') d.display = stdRef('display', d, null, null, (catalogVendor(d.display.vid) || {}).id);
     if (f === 'car') d.battery = null;
-    else if (!d.battery || d.battery.src === 'std') d.battery = { src: 'std', p: stdBattery(f, d.cat, now(), av.std, 2) };
-    if (d.radio && d.radio.src === 'std' && (((was === 'car' || was === 'bag') !== (f === 'car' || f === 'bag')) || d.radio.p.stds.includes('imts'))) d.radio = { src: 'std', p: stdRadio(now(), av.std, 2, null, f) };
+    else if (!d.battery || d.battery.src === 'std') d.battery = stdRef('battery', d, null, d.battery && d.battery.p, d.battery && (catalogVendor(d.battery.vid) || {}).id);
+    if (d.radio && d.radio.src === 'std' && (((was === 'car' || was === 'bag') !== (f === 'car' || f === 'bag')) || d.radio.p.stds.includes('imts'))) d.radio = stdRef('radio', d, null, d.radio.p);
     d.layout = (d.layout || []).filter(e => e.auto !== false);
     d.port = f === 'car' || f === 'bag' ? 'cord' : d.port === 'cord' ? 'barrel' : d.port;
   },
@@ -686,12 +742,6 @@ const PhoneLab = {
         const raw = pick.dataset.v, val = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
         const path = pick.dataset.pick;
         if (path === 'form') this.setForm(val);
-        else if (path === 'dispcombo') { const [em, m] = raw.split(':'); const p = d().display.p; p.emit = em; p.matrix = m; if (m === 'segment') { p.color = false; p.touch = 'none'; p.ppi = 0; p.aspect = 0.28; p.size = Math.min(p.size, 2.2); } else { p.ppi = Math.max(60, p.ppi || 100); if (p.aspect < 0.5) p.aspect = isKeypadForm(formOf(d())) ? 1.25 : 1.78; if (DISP_MATRIX[m].ppiMax) p.ppi = Math.min(p.ppi, DISP_MATRIX[m].ppiMax); } if (DISP_EMIT[em].emissive) p.bl = 'none'; if (!DISP_SHAPE[p.shape] || (DISP_SHAPE[p.shape].oled && !DISP_EMIT[em].emissive)) p.shape = 'bezel'; }
-        else if (path.startsWith('disp.')) setPath(d().display.p, path.slice(5), val);
-        else if (path.startsWith('bat.')) setPath(d().battery.p, path.slice(4), val);
-        else if (path.startsWith('radio.')) setPath(d().radio.p, path.slice(6), val);
-        else if (path === 'memram') { const [i, n] = raw.split(':').map(Number); const p = d().memory.p; p.ramDie = i; p.ramN = n; p.gen = i === 0 ? 'sram' : bestOf(DRAM_GEN_ORDER, DRAM_GENS, playerAv().std); p.stack = Math.max(p.stack || 1, Math.min(n, ladderCap(STACK_CAPS, playerAv().std))); }
-        else if (path === 'memsto') { const [i, n] = raw.split(':').map(Number); const p = d().memory.p; p.flDie = i; p.flN = n; if (!i) p.iface = 'par'; else if (p.iface === 'par') p.iface = STORAGE_IF_ORDER.filter(k => playerAv().std(STORAGE_IF[k].tech)).pop(); p.stack = Math.max(p.stack || 1, Math.min(n, ladderCap(STACK_CAPS, playerAv().std))); }
         else setPath(d(), path, val);
         changed(); return;
       }
@@ -700,13 +750,21 @@ const PhoneLab = {
         const path = tg.dataset.toggle;
         if (path.startsWith('cam.')) {
           const role = path.slice(4);
-          this.setPart('camera', role, d().cams[role] ? null : (stdCamera(role, now(), playerAv().std, 2) ? { src: 'std', p: stdCamera(role, now(), playerAv().std, 2) } : null));
+          this.setPart('camera', role, d().cams[role] ? null : stdRef('camera', d(), role));
+          if (d().cams[role]) this.camOpen = role;
           if (role === 'main' && !d().cams.main) { d().cams.ultra = null; d().cams.tele = null; }
           if (role === 'main' && d().cams.main && d().flash === 'none' && playerAv().std('cam_flash')) d().flash = 'led';
-        } else if (path === 'disp.color') d().display.p.color = !d().display.p.color;
-        else setPath(d(), path, !getPath(d(), path));
+        } else setPath(d(), path, !getPath(d(), path));
         changed(); return;
       }
+      const ct = e.target.closest('[data-cat]');
+      if (ct) { const [type, role, id] = ct.dataset.cat.split('|'), x = catalogItem(id); if (x) this.setPart(type, role || null, { src: 'std', p: clone(x.p), vid: x.id }); changed(); return; }
+      const co = e.target.closest('[data-camopen]');
+      if (co) { this.camOpen = this.camOpen === co.dataset.camopen ? null : co.dataset.camopen; changed(); return; }
+      const sa = e.target.closest('[data-sizeauto]');
+      if (sa) { d().size[sa.dataset.sizeauto] = 0; changed(); return; }
+      const pr = e.target.closest('[data-placereset]');
+      if (pr) { d().place = { sx: 0, sy: 0, kx: 0, ky: 0 }; changed(); return; }
       const ch = e.target.closest('[data-chip]');
       if (ch) { const [kind, id] = ch.dataset.chip.split(':'); d().chip = { kind, id }; changed(); return; }
       const col = e.target.closest('[data-color]');
@@ -722,10 +780,14 @@ const PhoneLab = {
         if (seg === 'front') d().style.front = v;
         if (seg === 'keys') d().style.keys = v;
         if (seg === 'keytone') { d().style.keyTone = v; if (v === 'accent' && !d().style.accent) d().style.accent = BODY_COLORS[11]; }
+        if (seg && seg.startsWith('catv-')) this.catVendor[seg.slice(5)] = v;
+        if (seg === 'navhome') d().nav.home = v;
+        if (seg === 'navkeys') d().nav.keys = v;
+        if (seg && seg.startsWith('up-')) d().up[seg.slice(3)] = v;
         if (seg && seg.startsWith('src-')) {
           const type = seg.slice(4);
           this.partMode[type] = v;
-          if (v === 'std') { const ref = type === 'display' ? d().display : d()[type]; if (ref && ref.src === 'own') this.setPart(type, null, { src: 'std', p: stdBuilder(type, d()) }); }
+          if (v === 'std') { const ref = type === 'display' ? d().display : d()[type]; if (ref && ref.src === 'own') this.setPart(type, null, stdRef(type, d(), null, partParams(ref))); }
           else { const ready = S.designs.find(x => x.type === type && x.status === 'ready'); if (ready) this.setPart(type, null, { src: 'own', id: ready.id }); }
         }
         changed(); return;
@@ -737,13 +799,11 @@ const PhoneLab = {
       if (a === 'autolayout') { d().layout = d().layout.map(x => Object.assign(x, { auto: true })); d().layout.forEach(x => { const [f, u, v] = defaultPlacement(x.t, d()); Object.assign(x, { f, u, v }); }); changed(); }
       if (a === 'autosize') { d().size = { w: 0, h: 0, t: 0 }; changed(); }
       if (a === 'fillbat') {
-        const z = productCosts(d(), now(), 'riverside').ev.sizing, p = d().battery.p, st = evalBattery(p, now());
-        const add = Math.floor(z.spareVol * (st.wh / st.volume) * 1000 / VOLTAGE / 50) * 50;
-        p.mah = Math.min(batteryCap(formOf(d()), d().cat, playerAv().std), p.mah + add);
-        changed(); toast(`Battery: ${p.mah.toLocaleString('en-US')} mAh`);
+        const x = this.biggerBattery(d(), this.eval().ev);
+        if (x) { d().battery = { src: 'std', p: clone(x.p), vid: x.id }; changed(); toast(`Battery: ${x.name} · ${x.p.mah.toLocaleString('en-US')} mAh`); }
       }
       if (a === 'reset') { const keep = { color: d().color }; S.draft = Object.assign(defaultDraft(d().cat, now()), keep); changed(); }
-      if (a === 'stddisp') { d().display = { src: 'std', p: stdDisplay(formOf(d()), d().cat, now(), playerAv().std, 2) }; changed(); }
+      if (a === 'stddisp') { d().display = stdRef('display', d()); changed(); }
       if (a === 'proto') { if (report(buildPrototype(d()))) toast('Prototype on the bench – ready in 14 days.', 'good'); changed(); }
       if (a === 'launch') {
         const name = d().name;
@@ -764,7 +824,7 @@ const PhoneLab = {
       this.setPathAny(path, v);
       if (inp.type === 'range') {
         const show = $(`[data-show="${path}"]`, el);
-        if (show) show.textContent = path.startsWith('size.') ? (v ? v.toFixed(1) + ' mm' : 'auto') : path === 'disp.size' ? (+v).toFixed(1) + '"' : path === 'disp.ppi' ? v + ' ppi' : path === 'bat.mah' ? v.toLocaleString('en-US') + ' mAh' : path === 'radio.bands' ? v + ' bands' : path === 'style.radius' ? Math.round(v * 100) + '%' : v;
+        if (show) show.textContent = path.startsWith('size.') || path.startsWith('place.') ? (+v).toFixed(1) + ' mm' : path === 'style.radius' ? Math.round(v * 100) + '%' : v;
         this.light();
       }
     };
@@ -777,45 +837,19 @@ const PhoneLab = {
       }
       if (inp.id === 'colorPick' || inp.id === 'accentPick') { changed(); return; }
       if (inp.id === 'intSel') { d().int = +inp.value; changed(); return; }
-      if (inp.id === 'aspectSel') { d().display.p.aspect = +inp.value; changed(); return; }
+      if (inp.dataset.catsort) { this.catSort[inp.dataset.catsort] = inp.value; changed(); return; }
       if (inp.id === 'elAuto') { const rec = d().layout.find(x => x.t === this.sel); if (rec) rec.auto = inp.checked; changed(); return; }
-      if (inp.dataset.std) {
-        const p = d().radio.p, s = inp.dataset.std;
-        if (inp.checked) { let n = s; while (n) { if (!p.stds.includes(n)) p.stds.push(n); n = NET_STDS[n].needs; } }
-        else p.stds = p.stds.filter(x => x !== s && NET_STDS[x].needs !== s);
-        p.stds = NET_ORDER.filter(x => p.stds.includes(x));
-        changed(); return;
-      }
       if (inp.dataset.camsrc) {
         const role = inp.dataset.camsrc;
-        this.setPart('camera', role, inp.value === 'std' ? { src: 'std', p: stdCamera(role, now(), playerAv().std, 2) } : { src: 'own', id: inp.value });
+        this.setPart('camera', role, inp.value === 'std' ? stdRef('camera', d(), role, partParams(d().cams[role])) : { src: 'own', id: inp.value });
         changed(); return;
       }
-      if (inp.dataset.cam) {
-        const [role, key] = inp.dataset.cam.split('.');
-        const p = d().cams[role].p;
-        p[key] = Number(inp.value);
-        if (key === 'mp' && p.mp >= 40 && !CAM_SENSOR[p.sensor].bin) p.sensor = bestOf(CAM_SENSOR_ORDER, CAM_SENSOR, playerAv().std);
-        changed(); return;
-      }
-      if (inp.dataset.camois) { const p = d().cams[inp.dataset.camois].p; p.ois = inp.checked ? 'lens' : 'none'; changed(); return; }
       if (!inp.dataset.path || inp.type === 'text') return;
       this.setPathAny(inp.dataset.path, inputVal(inp));
       changed();
     };
   },
-  setPathAny(path, v) {
-    const d = S.draft;
-    if (path.startsWith('disp.')) setPath(d.display.p, path.slice(5), v);
-    else if (path.startsWith('bat.')) setPath(d.battery.p, path.slice(4), v);
-    else if (path.startsWith('radio.')) setPath(d.radio.p, path.slice(6), v);
-    else setPath(d, path, v);
-  },
+  setPathAny(path, v) { setPath(S.draft, path, v); },
 };
-// a size slider dragged back to its minimum means "fit the parts" again
-function inputVal(inp) {
-  if (inp.dataset.num == null) return inp.value;
-  const v = Number(inp.value);
-  return inp.dataset.path && inp.dataset.path.startsWith('size.') && v <= Number(inp.min) + 0.25 ? 0 : v;
-}
+function inputVal(inp) { return inp.dataset.num == null ? inp.value : Number(inp.value); }
 registerView('phonelab', PhoneLab);

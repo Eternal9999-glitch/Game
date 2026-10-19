@@ -84,7 +84,12 @@ function specTechList(spec) {
   add([(FINGERPRINT[feat.fp] || FINGERPRINT.none).tech, OS[spec.os].tech, (FLASHES[spec.flash] || FLASHES.none).tech], 'features');
   for (const [key, id] of EXTRAS) if (feat[key]) add([id], 'features');
   for (const k of addonKeys(spec)) add([ADDONS[k].tech], 'features');
-  const refs = [['display', spec.display], ['battery', spec.battery], ['memory', spec.memory], ['radio', spec.radio]];
+  const up = spec.up || {};
+  for (const k in BODY_UPGRADES) add([(BODY_UPGRADES[k][up[k]] || {}).tech], 'design');
+  const nv = spec.nav || {};
+  if (NAV_HOME[nv.home]) add([NAV_HOME[nv.home].tech], 'features');
+  if (NAV_KEYS[nv.keys]) add([NAV_KEYS[nv.keys].tech], 'features');
+  const refs =[['display', spec.display], ['battery', spec.battery], ['memory', spec.memory], ['radio', spec.radio]];
   for (const [k, ref] of camsList(spec)) refs.push(['camera:' + k, ref]);
   for (const [type, ref] of refs) {
     if (!ref || ref.src !== 'std') continue;            // your own designs were checked when engineered
@@ -180,7 +185,7 @@ function productCosts(spec, t, maker) {
   }
   const part = (key, type, label, ref, base) => {
     if (!ref || base == null) return;
-    if (ref.src === 'std') { comps.push({ key, type, label: label + ' (' + SUPPLIERS[type] + ')', buy: base * SUPPLIER_MARKUP * sm, std: true }); return; }
+    if (ref.src === 'std') { comps.push({ key, type, label: label + ' (' + stdVendorName(type, ref) + ')', buy: base * stdMarkup(ref) * sm, std: true }); return; }
     const d = partRecord(ref);
     const excl = d ? designExclusive(d) : false;
     const plant = factoryActive(type);
@@ -388,7 +393,7 @@ function monthlyRefresh() {
 //   × deal-breakers (far behind its segment on something buyers care about) × hype × reviews × coverage
 const presence = aware => Math.pow(Math.max(0.001, aware), 0.65);
 // ---- Marketing: a budget split over the buyer segments, with a message focus -----------------------
-const MKT_FOCUS = ['perf', 'cam', 'disp', 'batt', 'net', 'design', 'feat'];
+const MKT_FOCUS = ['perf', 'cam', 'disp', 'batt', 'net', 'design', 'slim', 'light', 'feat'];
 function ensureMkt() {
   if (!S.mktSeg) S.mktSeg = { budget: 1, mid: 1, premium: 1, ultra: 1 };
   if (!S.mktFocus) S.mktFocus = {};
@@ -556,14 +561,14 @@ function estimateDemand(raw, cat, price, review, cov) {
 // Five outlets score every category against the rivals in the phone's price segment – plus value
 // for money against the fair price. Each weighs the categories its readers care about.
 const OUTLETS = [
-  { name: 'The Circuit', from: 1973, w: { design: 1.6, disp: 1.2, cam: 1.1, perf: 0.9, batt: 1, net: 0.6, feat: 0.9, value: 0.9 } },
-  { name: 'MobileSpecs', from: 1973, w: { perf: 1.5, batt: 1.3, net: 1.4, feat: 1.2, disp: 1, cam: 0.9, design: 0.6, value: 1 } },
-  { name: 'LensLab', from: 2003, w: { cam: 3.2, disp: 1.2, perf: 0.7, batt: 0.7, design: 0.8, feat: 0.5, net: 0.3, value: 0.7 } },
-  { name: 'ValueBuy', from: 1973, w: { value: 3, batt: 1.3, net: 1, perf: 0.8, cam: 0.8, disp: 0.8, design: 0.6, feat: 0.8 } },
-  { name: 'Consumer Weekly', from: 1973, w: { value: 1.7, batt: 1.6, net: 1.2, design: 1.1, feat: 0.9, cam: 0.8, perf: 0.6, disp: 0.8 } },
+  { name: 'The Circuit', from: 1973, w: { design: 1.6, slim: 1.5, light: 1.2, disp: 1.2, cam: 1.1, perf: 0.9, batt: 1, net: 0.6, feat: 0.9, value: 0.9 } },
+  { name: 'MobileSpecs', from: 1973, w: { perf: 1.5, batt: 1.3, net: 1.4, feat: 1.2, disp: 1, cam: 0.9, design: 0.6, slim: 0.7, light: 0.8, value: 1 } },
+  { name: 'LensLab', from: 2003, w: { cam: 3.2, disp: 1.2, perf: 0.7, batt: 0.7, design: 0.8, slim: 0.4, light: 0.4, feat: 0.5, net: 0.3, value: 0.7 } },
+  { name: 'ValueBuy', from: 1973, w: { value: 3, batt: 1.3, net: 1, perf: 0.8, cam: 0.8, disp: 0.8, design: 0.6, slim: 0.4, light: 0.6, feat: 0.8 } },
+  { name: 'Consumer Weekly', from: 1973, w: { value: 1.7, batt: 1.6, net: 1.2, design: 1.1, slim: 0.9, light: 1.2, feat: 0.9, cam: 0.8, perf: 0.6, disp: 0.8 } },
 ];
-const REVIEW_GOOD = { perf: 'blazing performance', cam: 'a superb camera', disp: 'a gorgeous display', batt: 'outstanding battery life', net: 'great reception and speed', design: 'a gorgeous, portable design', feat: 'a loaded feature set', value: 'great value for money' };
-const REVIEW_BAD = { perf: 'sluggish performance', cam: 'a disappointing camera', disp: 'a mediocre screen', batt: 'weak battery life', net: 'poor reception', design: 'a dated, bulky design', feat: 'missing features', value: 'overpriced for what it offers' };
+const REVIEW_GOOD = { perf: 'blazing performance', cam: 'a superb camera', disp: 'a gorgeous display', batt: 'outstanding battery life', net: 'great reception and speed', design: 'a gorgeous design', slim: 'an impossibly thin body', light: 'a feather-light build', feat: 'a loaded feature set', value: 'great value for money' };
+const REVIEW_BAD = { perf: 'sluggish performance', cam: 'a disappointing camera', disp: 'a mediocre screen', batt: 'weak battery life', net: 'poor reception', design: 'a dated design', slim: 'a thick, chunky body', light: 'a heavy brick in the pocket', feat: 'missing features', value: 'overpriced for what it offers' };
 function reviewHash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
 function predictReview(raw, cat, price, exclusive, name) {
   const t = now(), seg = segmentForPrice(cat, price, t);
@@ -1517,7 +1522,7 @@ function endOfMonth() {
   for (const n of NODES) if (t >= n.year && t - 1 / 12 < n.year) addNews(`💠 Foundries now offer the ${nodeLabel(n.nm)} process (${fmtMoney(n.wafer)}/wafer).`, 'world');
   for (const e of EVENTS) if (t >= e.start && t - 1 / 12 < e.start) addNews(`🌍 ${e.title}: ${e.desc}`, 'bad', true);
   for (const tr of TRENDS) {
-    if (t >= tr.start && t - 1 / 12 < tr.start) addNews(`📈 Trend: ${tr.title}! ${tr.desc} (Buyers weigh ${Object.keys(tr.k).map(k => SUB_LABELS[k].toLowerCase()).join(' & ')} more${tr.segs ? ' in ' + tr.segs.map(sg => SEG_INFO[sg].name.toLowerCase()).join(', ') : ''} – ads about it work better.)`, 'world', true);
+    if (t >= tr.start && t - 1 / 12 < tr.start) addNews(`📈 Trend: ${tr.title}! ${tr.desc} (Buyers${tr.segs ? ' in ' + tr.segs.map(sg => SEG_INFO[sg].name.toLowerCase()).join(', ') : ''} weigh ${Object.keys(tr.k).map(k => SUB_LABELS[k].toLowerCase() + (tr.k[k] < 0 ? ' less' : ' more')).join(' & ')} – ads about it work better.)`, 'world', true);
     if (t >= tr.end && t - 1 / 12 < tr.end) addNews(`📉 The ${tr.title.toLowerCase()} fades.`, 'world');
   }
   for (const c of CARRIERS) for (const s in c.stds) {

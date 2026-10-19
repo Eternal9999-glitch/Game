@@ -17,18 +17,29 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
    - 🏭 **Manufacturer**: starts with a workshop, cheaper plants, more supply contracts.
    - 🔬 **Tech Pioneer**: faster, cheaper research, cheaper tooling and tape-outs, bigger licensing royalties.
 2. **📱 Phone Lab**: pick a form factor (car, bag, brick, candybar, flip, QWERTY, slider, touch, foldable, tablet) and every part around a
-   live 3D model. Each part is either a **supplier part**, configurable within what suppliers sell, or **one of your own designs**.
+   live 3D model. Each part is either a **supplier model** or **one of your own designs**.
+   - **Suppliers**: every part type has three companies, and each releases a new range every year (models stay on sale for 3 years).
+     For example, Lumina makes mainstream panels, Kiro the newest premium ones and Valor cheap older ones. SlimCell sells thin, small batteries
+     and Titan big, cheap, thick ones. Every model lists its performance, the **room it takes** (cm³, thickness) and its price.
+     The processor list also shows each chip's performance, size and how much of its speed it keeps in your body.
    - **🧩 Body**: form factor, material, finish and color, plus an accent color (buttons, camera island, keys), a black or white
-     front, key style (classic, round, flush pad, bubble), corner roundness, edge profile and **size**. Make the body wider or taller
-     and the same parts spread thinner (keypads grow too); make it thicker for spare room, then fill it with a bigger battery.
-     Bigger bodies weigh more and score lower on design, but shed more heat.
+     front, key style (classic, round, flush pad, bubble), corner roundness, edge profile and **size**. Width, height and thickness are
+     each either auto or a target you set:
+     - Set a thickness below what the parts need and the body grows taller.
+     - Fix the height as well and the parts must fit: smaller batteries, chips and cameras let you go thinner bit by bit between the big
+       integration steps.
+     - A "room inside" bar shows where the space goes, and nothing gets thinner than its tallest part (battery cell, board and chip).
+     - Thin bodies shed less heat, so hot chips throttle.
+   - **Upgrades & decorations**: inner frames, cooling (graphite to fans), rugged bumpers or MIL-spec armor, back textures (carbon, leather,
+     wood, aramid, fabric, gradient, translucent, color-shift), coatings, frame finishes and logo styles (embossed, badge, glowing).
    - **✨ Add-ons** (Features tab): ~30 researched extras – notification LED, scroll wheel, trackball, push-to-talk and shutter keys,
      IR blaster, flashlight, kickstand, TV tuner, dual SIM, alert slider, privacy switch, heart-rate and UV sensors, pico projector,
      e-ink or selfie back display, light strips, gaming triggers… Each adds cost, room and weight, and feature points if it fits the phone.
    - **📐 Layout** unfolds the body into front, back and four edges. Drag the earpiece, mic, speakers, power and volume keys, ports,
      headphone jack, SIM tray, card slot, cameras, flash, fingerprint sensor, antenna, logo and optional keys anywhere they fit.
    - Ergonomics are scored: thumb reach, the mouth-to-ear distance between mic and earpiece, cameras your palm covers,
-     cables digging into your hand. Ports and jacks need body thickness.
+     cables digging into your hand. Ports and jacks need body thickness. Sliders move the screen and keypad around the front, and touch
+     phones choose a home button and navigation keys (physical, capacitive, on-screen bar, gestures).
 3. **🛠️ Parts Lab**: each part type has its own design system:
    - **Display**: a layer stack of cover glass, touch layer, polarizer, emitter or liquid crystal plus color filter, TFT backplane and backlight.
      Design rules apply (OLED needs LTPS, passive matrices smear when large).
@@ -53,8 +64,10 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
    plant (at cost, small capacity), by a contract part maker (+22%, monthly tooling fee, ~3 weeks) or at a foundry (~2½ months, with a wafer
    allocation that grows as you use it). Phones can't be built without them; you can stop a part line at any time.
 7. **📣 Marketing** (💰 Finance): split the budget over budget / mid / premium / ultra buyers (each segment has its own awareness) and pick a
-   message (camera, display, performance, battery…). Ads lift how buyers see those strengths – fully only if your phone really leads there.
-   **Trends** (camera-phone boom, mobile gaming explosion, selfie craze, 5G hype, AI phones…) shift what buyers want for a few years, and ads
+   message (camera, display, performance, battery, thinness, lightness…). Ads lift how buyers see those strengths – fully only if your phone
+   really leads there. **Thinness** and **lightness** are buyer categories of their own.
+   **Trends** (camera-phone boom, "Thin is in", mobile gaming explosion, battery-first backlash, thinnest-phone race, compact revival,
+   5G hype, AI phones…) shift what buyers want for a few years, and ads
    that ride a trend work better.
 7. **🔬 Research**: about 410 technologies across 11 tracks, shown as a tech tree over time:
    - networks

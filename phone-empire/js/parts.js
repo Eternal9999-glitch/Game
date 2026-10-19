@@ -490,7 +490,8 @@ function evalBattery(p, t) {
     const c = CHEM[p.chem], f = BAT_FORMAT[p.fmt], v = CHARGE_V[p.volt] || CHARGE_V[0], wl = WIRELESS[p.wireless];
     const li = !c.nickel;
     const wh = p.mah * VOLTAGE / 1000;
-    const whl = c.whl * f.pack * (li ? 1 + 0.06 * (p.dgen || 0) : 1) * (li ? v.e : 1) * (0.9 + 0.17 * p.elec) * (1.06 - 0.12 * p.safety);
+    // thin cells (slim-cell makers) lose some density to packaging and cost more per Wh
+    const whl = c.whl * f.pack * (li ? 1 + 0.06 * (p.dgen || 0) : 1) * (li ? v.e : 1) * (0.9 + 0.17 * p.elec) * (1.06 - 0.12 * p.safety) * (p.thin ? 0.93 : 1);
     const volume = wh / whl * 1000;                                  // cm³
     const weight = wh / (c.whkg * (li ? 1 + 0.03 * (p.dgen || 0) : 1)) * 1000 * (1 + 0.1 * (1 - f.pack)) + 2;
     const maxC = c.maxC * (1.6 - 0.8 * p.elec) * (p.dual ? 2 : 1);
@@ -501,11 +502,13 @@ function evalBattery(p, t) {
     const risk = c.risk * f.risk * (li ? v.risk : 1) * Math.pow(2.5 - 2 * p.safety, 1.6) * (chargeW / wh > 2 ? 1.3 : 1) * (p.safetySys ? 0.45 : 1);
     const perWh = 0.9 * (t < 2007 ? 1 + 0.08 * (2007 - t) : decl(0.07, 2007, t, 0.12)) * c.cost * earlyMul(techMarket(c.tech), t);
     const chg = CHARGE.find(x => x.w === p.charge) || CHARGE[0];
-    const cost = wh * perWh * f.cost * (1 + 0.12 * (1 - p.safety)) + 0.8 * decl(0.05, 1990, t, 0.4)
+    const cost = wh * perWh * f.cost * (1 + 0.12 * (1 - p.safety)) * (p.thin ? 1.12 : 1) + 0.8 * decl(0.05, 1990, t, 0.4)
       + 0.025 * Math.pow(p.charge, 0.85) * decl(0.1, techMarket(chg.tech), t, 0.3) + wl.cost * decl(0.1, techMarket(wl.tech), t, 0.3) + (p.dual ? 1.2 : 0);
-    return { wh, whl, volume, weight, maxW, chargeW, chargeMin, cycles, risk, cost, wireless: wl.w, rules: batteryRules(p) };
+    return { wh, whl, volume, weight, maxW, chargeW, chargeMin, cycles, risk, cost, wireless: wl.w, z: batteryZ(p), rules: batteryRules(p) };
   });
 }
+// the thinnest a cell of this format can be (mm)
+const batteryZ = p => (p ? (BAT_FORMAT[p.fmt] || BAT_FORMAT.prism).minT * (p.thin ? 0.82 : 1) : 0);
 function batteryCap(form, cat, ok) {
   const base = ladderCap(BAT_CAPS, ok);
   return form === 'bag' ? base * 6 : cat === 'tablet' ? Math.max(3000, Math.round(base * 2.2 / 50) * 50) : base;
@@ -747,8 +750,152 @@ function stdRadio(t, ok, lvl, regions, form) {
   return out;
 }
 
+// ============================================================================
+//  SUPPLIER CATALOGS: several companies per part type, each with its own strengths, release a range
+//  of models every year (like the chip vendors). A model stays on sale for CATALOG_LIFE years.
+// ============================================================================
+const CATALOG_LIFE = 3;
+const vendorOk = (t, lag) => id => !id || !TECH[id] || TECH[id].market <= t - lag;
+const r1 = x => Math.round(x * 10) / 10;
+const memCode = mb => (mb >= 1024 ? Math.round(mb / 1024) + 'G' : mb >= 1 ? Math.round(mb) + 'M' : Math.round(mb * 1024) + 'K');
+// which catalog a part comes from: displays and batteries are made for a form factor, cameras for a role
+function catalogKey(type, form, cat, role) {
+  if (type === 'display' || type === 'battery') return form + '/' + cat;
+  if (type === 'camera') return role || 'main';
+  if (type === 'radio') return form === 'car' || form === 'bag' ? 'car' : 'hand';
+  return 'all';
+}
+// one vendor's models released in year y: [{p, code, tag}]
+function vendorRange(type, v, key, tr) {
+  const ok = vendorOk(tr, v.lag), out = [];
+  const add = (p, code, tag) => { if (p) out.push({ p, code, tag }); };
+  if (type === 'display') {
+    const [form, cat] = key.split('/'), keypad = isKeypadForm(form);
+    const step = cat === 'tablet' ? 1.2 : keypad ? 0.3 : 0.35;
+    const cap = Math.min(form === 'slate' ? ladderCap(TABLET_SIZE_CAPS, ok) : ladderCap(DISP_SIZE_CAPS, ok), form === 'fold' ? 8.1 : 99);
+    const sized = (lvl, ds, tag) => {
+      const p = stdDisplay(form, cat, tr, ok, lvl);
+      if (!p || p.emit === 'none') return;
+      const lim = Math.min(cap, p.matrix === 'segment' ? 2.2 : p.matrix === 'passive' ? 2.8 : 99);
+      p.size = r1(clamp(p.size + ds * step, form === 'fold' ? 7 : 0.6, lim));
+      add(p, Math.round(p.size * 10), tag);
+    };
+    if (v.style === 'premium') { sized(3, 0, 'flagship'); sized(3, 1.2, 'big'); }
+    else if (v.style === 'budget') { sized(0, -1, 'small'); sized(0, 0.3, ''); sized(1, 1, 'big'); }
+    else { sized(2, -1, 'compact'); sized(2, 0, ''); sized(2, 1, 'big'); }
+  } else if (type === 'camera') {
+    const role = key;
+    let fmtMax = 0;
+    CAM_FORMAT_TECH.forEach((id, i) => { if (ok(id)) fmtMax = i; });
+    const cam = (lvl, fmtCap, tag) => { const p = stdCamera(role, tr, ok, lvl, fmtCap); if (p) add(p, p.mp, tag); };
+    if (v.style === 'bigsensor') { cam(3, null, 'big sensor'); if (role === 'main' || role === 'tele') cam(2, null, ''); }
+    else if (v.style === 'compact') { cam(1, Math.max(0, fmtMax - 3), 'slim'); cam(0, Math.max(0, fmtMax - 4), 'tiny'); }
+    else { cam(2, null, ''); cam(1, null, 'value'); }
+  } else if (type === 'battery') {
+    const [form, cat] = key.split('/');
+    if (form === 'car') return out;
+    const capMax = batteryCap(form, cat, ok);
+    const cell = (lvl, mul, tag, f) => {
+      const p = stdBattery(form, cat, tr, ok, lvl);
+      if (!p) return;
+      if (f) f(p);
+      p.mah = Math.round(clamp(p.mah * mul, 300, capMax) / 50) * 50;
+      add(p, p.mah, tag);
+    };
+    if (v.style === 'thin') {
+      const thin = p => { if (!CHEM[p.chem].nickel) { p.fmt = ok('bat_stack') ? 'stacked' : ok('bat_lipo') ? 'pouch' : p.fmt; p.thin = BAT_FORMAT[p.fmt].lithium; } };
+      for (const m of [0.55, 0.7, 0.85]) cell(3, m, 'thin', thin);
+    } else if (v.style === 'bulk') {
+      const bulk = p => { p.fmt = CHEM[p.chem].nickel ? (ok('bat_prism') ? 'prism' : 'cyl') : ok('bat_prism') ? 'prism' : p.fmt; p.elec = 0.45; const ch = CHARGE.filter(c => ok(c.tech) && c.w <= p.charge); p.charge = (ch[Math.max(0, ch.length - 2)] || CHARGE[0]).w; p.dual = p.dual && p.charge >= 65; };
+      for (const m of [1.0, 1.3, 1.6]) cell(0, m, m > 1.2 ? 'huge' : 'big', bulk);
+    } else for (const m of [0.8, 1.0, 1.2]) cell(2, m, '');
+  } else if (type === 'memory') {
+    const mem = (lvl, tag, f) => { const p = stdMemory(tr, ok, lvl); if (!p) return; if (f) f(p); add(p, memCode(DRAM_DIES[p.ramDie] * p.ramN / 8) + '/' + memCode(FLASH_DIES[p.flDie] * p.flN / 8), tag); };
+    const stackMax = ladderCap(STACK_CAPS, ok);
+    if (v.style === 'fast') { mem(3, 'fast', p => { p.stack = Math.min(stackMax, Math.max(p.ramN, p.flN, 1)); }); mem(2, 'compact', p => { p.stack = Math.min(stackMax, Math.max(p.ramN, p.flN, 1)); }); }
+    else if (v.style === 'budget') {
+      const slow = p => { p.stack = 1; const ifs = STORAGE_IF_ORDER.filter(k => ok(STORAGE_IF[k].tech)); if (p.flDie) p.iface = ifs[Math.max(0, ifs.length - 2)] || p.iface; };
+      mem(2, 'roomy', p => { slow(p); if (p.flDie) p.flN = Math.min(16, p.flN * 2); });
+      mem(0, 'cheap', slow);
+    } else { mem(1, ''); mem(2, ''); }
+  } else if (type === 'radio') {
+    const form = key === 'car' ? 'car' : 'touch';
+    const rad = (lvl, db, tag) => {
+      const p = stdRadio(tr, ok, lvl, null, form);
+      if (!p) return;
+      p.bands = clamp(p.bands + db, 1, ladderCap(BAND_CAPS, ok));
+      const g = Math.max(...p.stds.map(s => NET_STDS[s].gen));
+      add(p, Math.floor(g) + 'G' + p.bands, tag);
+    };
+    if (v.style === 'premium') { rad(3, 2, 'world'); rad(2, 1, ''); }
+    else if (v.style === 'budget') { rad(0, -2, 'basic'); rad(1, -1, ''); }
+    else { rad(2, 0, ''); rad(1, 0, 'value'); }
+  }
+  return out;
+}
+const _catRel = new Map();
+// a vendor's release for year y (memoized): items with ids, names and dates
+function catalogRelease(type, v, key, y) {
+  const k = [type, v.id, key, y].join('|');
+  let rel = _catRel.get(k);
+  if (rel) return rel;
+  const tr = y + v.month / 12;
+  rel = tr < FIRST_YEAR ? [] : vendorRange(type, v, key, tr).map((m, i) => ({
+    id: [type, v.id, key, y, i].join('.'), type, vendor: v.id, vname: v.name, key, release: tr, tag: m.tag, p: m.p,
+    name: `${v.name.split(' ')[0]} ${v.series}-${m.code}`, sig: JSON.stringify(m.p),
+  }));
+  _catRel.set(k, rel);
+  return rel;
+}
+// every model on sale at t
+// every model on sale at t (a model re-released unchanged counts once, as its newest release)
+function catalogOnSale(type, key, t) {
+  const out = [];
+  for (const v of PART_VENDORS[type]) for (let y = Math.floor(t - CATALOG_LIFE); y <= Math.floor(t); y++) {
+    for (const x of catalogRelease(type, v, key, y)) if (x.release <= t && t < x.release + CATALOG_LIFE) out.push(x);
+  }
+  out.sort((a, b) => b.release - a.release);
+  const seen = new Set();
+  return out.filter(x => { const k = x.vendor + x.sig; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+function catalogItem(id) {
+  if (!id) return null;
+  const [type, vid, key, y, i] = id.split('.');
+  const v = PART_VENDORS[type] && PART_VENDORS[type].find(x => x.id === vid);
+  return v ? catalogRelease(type, v, key, +y).find(x => x.id === id) || null : null;
+}
+const catalogVendor = id => { const [type, vid] = String(id || '').split('.'); return PART_VENDORS[type] ? PART_VENDORS[type].find(v => v.id === vid) : null; };
+// supplier markup on a standard part: each company has its own
+const stdMarkup = ref => { const v = ref && ref.vid ? catalogVendor(ref.vid) : null; return v ? v.mk : SUPPLIER_MARKUP; };
+const stdVendorName = (type, ref) => { const v = ref && ref.vid ? catalogVendor(ref.vid) : null; return v ? v.name : SUPPLIERS[type]; };
+// the one number a buyer compares first
+function catalogMain(type, p) {
+  if (!p) return 1;
+  switch (type) {
+    case 'display': return p.size || 1;
+    case 'battery': return p.mah;
+    case 'camera': return p.mp * (1 + p.fmt * 0.3);
+    case 'memory': return Math.max(1e-3, DRAM_DIES[p.ramDie] * p.ramN) * Math.max(1, FLASH_DIES[p.flDie] * p.flN);
+    case 'radio': return Math.max(...p.stds.map(s => NET_STDS[s].gen)) * 10 + p.bands;
+  }
+  return 1;
+}
+// the model on sale closest to p (or the mainstream default), among those okFn accepts
+function catalogClosest(type, key, t, p, okFn, vendorPref) {
+  const items = catalogOnSale(type, key, t).filter(x => !okFn || okFn(x.p));
+  if (!items.length) return null;
+  const main = p ? catalogMain(type, p) : null, mainV = PART_VENDORS[type][0].id;
+  let best = null, bs = 1e9;
+  for (const x of items) {
+    let sc = main ? Math.abs(Math.log(catalogMain(type, x.p) / main)) : (x.vendor === mainV && !x.tag ? 0 : 1);
+    sc += (x.vendor === (vendorPref || mainV) ? 0 : 0.12) + (t - x.release) * 0.05;
+    if (sc < bs) { bs = sc; best = x; }
+  }
+  return best;
+}
+
 // ---- generic dispatch ---------------------------------------------------------------
-const PART_EVAL = { display: evalDisplay, camera: evalCamera, battery: evalBattery, memory: evalMemory, radio: evalRadio };
+const PART_EVAL ={ display: evalDisplay, camera: evalCamera, battery: evalBattery, memory: evalMemory, radio: evalRadio };
 const PART_TECHS = { display: displayTechs, camera: cameraTechs, battery: batteryTechs, memory: memoryTechs, radio: radioTechs };
 // a part reference in a phone spec: {src:'std', p:{...}} or {src:'own', id}
 function partParams(ref) {

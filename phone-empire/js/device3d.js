@@ -285,6 +285,47 @@ function backPanelMaterial(mat, color, finish) {
   const frosted = finish === 'frosted' || finish === 'matte';
   return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), roughness: frosted ? 0.5 : 0.08, metalness: 0.05, clearcoat: frosted ? 0.3 : 1, clearcoatRoughness: frosted ? 0.4 : 0.03 });
 }
+// back decorations drawn on a canvas: weaves, leather, wood, fabric, gradients, see-through, color-shift
+function textureMap(kind, color, accent) {
+  const cv = makeCanvas(256, 256), g = cv.getContext('2d'), hex = '#' + new THREE.Color(color).getHexString();
+  const shade = (c, k) => '#' + new THREE.Color(c).multiplyScalar(k).getHexString();
+  const lin = (a, b) => { const gr = g.createLinearGradient(0, 0, 256, 256); gr.addColorStop(0, a); gr.addColorStop(1, b); return gr; };
+  let tile = true;
+  switch (kind) {
+    case 'carbon': case 'aramid': {
+      const [a, b] = kind === 'carbon' ? ['#2e3238', '#1c1f24'] : ['#c9a227', '#9c7c1c'];
+      for (let y = 0; y < 256; y += 16) for (let x = 0; x < 256; x += 16) { const on = ((x + y) / 16) % 2; g.fillStyle = on ? a : b; g.fillRect(x, y, 16, 8); g.fillStyle = on ? b : a; g.fillRect(x, y + 8, 16, 8); }
+      break;
+    }
+    case 'leather':
+      g.fillStyle = shade(hex, 0.85); g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.1})`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2); }
+      g.strokeStyle = 'rgba(255,255,255,0.35)'; g.setLineDash([6, 5]); g.lineWidth = 2; g.strokeRect(10, 10, 236, 236); tile = false;
+      break;
+    case 'wood':
+      g.fillStyle = '#8a5a35'; g.fillRect(0, 0, 256, 256);
+      for (let y = 0; y < 256; y += 3) { g.strokeStyle = `rgba(60,30,10,${0.15 + 0.15 * Math.sin(y * 0.21)})`; g.beginPath(); g.moveTo(0, y); for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + 4 * Math.sin(x * 0.03 + y * 0.05)); g.stroke(); }
+      break;
+    case 'fabric':
+      g.fillStyle = hex; g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 256; i += 4) { g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(i, 0, 1.5, 256); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(0, i, 256, 1.5); }
+      break;
+    case 'gradient': g.fillStyle = lin(hex, accent || shade(hex, 1.6)); g.fillRect(0, 0, 256, 256); tile = false; break;
+    case 'shift': {
+      const gr = g.createLinearGradient(0, 256, 256, 0);
+      ['#6a5acd', hex, '#3cc8c8', '#e07ab8', hex].forEach((c, i, a) => gr.addColorStop(i / (a.length - 1), c));
+      g.fillStyle = gr; g.fillRect(0, 0, 256, 256); tile = false; break;
+    }
+    case 'clear':
+      g.fillStyle = 'rgba(200,210,220,0.9)'; g.fillRect(0, 0, 256, 256);
+      g.strokeStyle = 'rgba(40,50,60,0.6)'; g.lineWidth = 2;
+      [[30, 20, 90, 70], [140, 30, 80, 40], [40, 120, 176, 110], [150, 80, 60, 28]].forEach(r => g.strokeRect(...r));
+      tile = false; break;
+  }
+  const t = canvasTex(cv);
+  if (tile) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 3); }
+  return t;
+}
 const darkGlass = () => new THREE.MeshPhysicalMaterial({ color: 0x07080b, roughness: 0.06, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.02 });
 const holeMat = () => new THREE.MeshStandardMaterial({ color: 0x050608, roughness: 0.9, metalness: 0 });
 function brushedMap() {
@@ -484,7 +525,26 @@ function buildDeviceInner(spec, ev) {
   root.userData.places = [];
   const bodyMat = bodyMaterial(spec.body.mat, spec.color, fin);
   if (fin === 'brushed' && /alu|mg|ti/.test(spec.body.mat)) { bodyMat.roughnessMap = brushedMap(); }
-  const backMat = backPanelMaterial(spec.body.mat, spec.color, fin);
+  let backMat = backPanelMaterial(spec.body.mat, spec.color, fin);
+  // decorations: a textured back, the frame's finish
+  const up = spec.up || {};
+  if (up.texture && up.texture !== 'plain' && TEXTURES[up.texture]) {
+    const soft = ['leather', 'wood', 'fabric'].includes(up.texture);
+    if (!backMat) backMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.05 });
+    backMat.map = textureMap(up.texture, spec.color, (spec.style || {}).accent);
+    backMat.color = new THREE.Color(0xffffff);
+    backMat.roughness = soft ? 0.85 : up.texture === 'carbon' || up.texture === 'aramid' ? 0.35 : 0.15;
+    if (backMat.clearcoat != null) backMat.clearcoat = soft ? 0 : 1;
+    if (up.texture === 'clear') { backMat.transparent = true; backMat.opacity = 0.85; }
+    backMat.needsUpdate = true;
+  }
+  if (backMat && up.framefin && up.framefin !== 'match') {
+    const acc = (spec.style || {}).accent;
+    if (up.framefin === 'accent' && acc) bodyMat.color = new THREE.Color(acc);
+    if (up.framefin === 'polish') { bodyMat.roughness = 0.06; bodyMat.metalness = 1; }
+    if (up.framefin === 'pvd') { bodyMat.color = new THREE.Color(acc || spec.color).lerp(new THREE.Color('#d4af37'), 0.25); bodyMat.metalness = 0.95; bodyMat.roughness = 0.18; }
+    if (up.framefin === 'diamond') { bodyMat.color = bodyMat.color.clone().lerp(new THREE.Color('#ffffff'), 0.25); bodyMat.roughness = 0.04; bodyMat.metalness = 1; }
+  }
   // accent: buttons, camera island and (optionally) keys in a second color
   const accent = style.accent || null, keyTone = style.keyTone || 'auto';
   const keyLight = keyTone === 'light' ? true : keyTone === 'dark' ? false : keyTone === 'accent' && accent ? lum(accent) > 0.55 : lum(spec.color) > 0.55;
@@ -578,7 +638,12 @@ function buildDeviceInner(spec, ev) {
         break;
       }
       case 'logo': {
-        add(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicMaterial({ map: canvasTex(drawLogo(brandText(spec), spec.color)), transparent: true }), 0.008);
+        const ls = (spec.up || {}).logostyle || 'print', lit = ls === 'glow' || ls === 'badge';
+        const lm = new THREE.MeshBasicMaterial({ map: canvasTex(drawLogo(brandText(spec), lit ? '#000000' : spec.color)), transparent: true });
+        if (ls === 'glow') { lm.color = new THREE.Color('#bfe6ff'); lm.blending = THREE.AdditiveBlending; }
+        if (ls === 'badge') lm.color = new THREE.Color('#e6e9ee');
+        if (ls === 'emboss') lm.opacity = 0.55;
+        add(new THREE.PlaneGeometry(w, w / 4), lm, 0.008);
         break;
       }
       case 'led': add(new THREE.CircleGeometry(Math.max(0.05, w * 0.4), 12), new THREE.MeshStandardMaterial({ color: 0x113322, emissive: 0x22ff88, emissiveIntensity: 0.6 }), 0.01); break;

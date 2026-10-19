@@ -28,7 +28,7 @@ function lineStatus(p) {
 }
 function trendNote(tr, t) {
   const lv = trendLevel(tr, t);
-  return `<div class="note">📈 <b>${esc(tr.title)}</b> — ${esc(tr.desc)} Buyers${tr.segs ? ' (' + tr.segs.map(sg => SEG_INFO[sg].name).join(', ') + ')' : ''} weigh ${Object.entries(tr.k).map(([k, v]) => `${SUB_LABELS[k]} +${Math.round(v * lv * 100)}%`).join(', ')}${tr.demand ? ` · market +${Math.round((tr.demand - 1) * lv * 100)}%` : ''}. Until ${dateLabel(tr.end)}${lv < 0.99 ? (t < (tr.start + tr.end) / 2 ? ' · building' : ' · fading') : ''}.</div>`;
+  return `<div class="note">📈 <b>${esc(tr.title)}</b> — ${esc(tr.desc)} Buyers${tr.segs ? ' (' + tr.segs.map(sg => SEG_INFO[sg].name).join(', ') + ')' : ''} weigh ${Object.entries(tr.k).map(([k, v]) => `${SUB_LABELS[k]} ${v < 0 ? '−' : '+'}${Math.abs(Math.round(v * lv * 100))}%`).join(', ')}${tr.demand ? ` · market +${Math.round((tr.demand - 1) * lv * 100)}%` : ''}. Until ${dateLabel(tr.end)}${lv < 0.99 ? (t < (tr.start + tr.end) / 2 ? ' · building' : ' · fading') : ''}.</div>`;
 }
 function partLineStatus(r) {
   if (r.status !== 'ready') return `<span class="warn">${r.stats ? 'taping out' : 'engineering'} · ${Math.max(0, r.readyDay - S.day)} d</span>`;

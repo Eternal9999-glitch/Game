@@ -22,3 +22,9 @@
 .rv-o { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
 .rv-o b { font-size: 18px; }
 .rv-o.owners { border-style: dashed; }
+/* room inside the body (Phone Lab → Body → Size) */
+.space-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line, #2a2f3a); margin: 4px 0; }
+.space-bar span { display: block; height: 100%; }
+.space-bar .sp0 { background: #4fb37a; } .space-bar .sp1 { background: #6d8cff; } .space-bar .sp2 { background: #9a7cf0; }
+.space-bar .sp3 { background: #e0b84f; } .space-bar .sp4 { background: #e07a5f; } .space-bar .sp5 { background: #8a93a3; }
+.btn.xs { padding: 1px 7px; font-size: 11px; line-height: 16px; }
