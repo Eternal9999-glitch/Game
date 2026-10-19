@@ -1,278 +1,221 @@
 'use strict';
 // ============================================================================
-//  Chip Lab: floorplan your own SoC on a silicon die. Block placement matters:
-//  cache next to cores boosts them, hot blocks next to each other throttle,
-//  I/O and modems must sit on the die edge, and every mm² costs money & yield.
+//  Processor designer: the 💠 Processor tab of the Parts Lab. Pick a process
+//  node and how many of each block go on the die; area, yield, heat, speed and
+//  price follow. A tape-out costs a mask set and a few months, then the chip is
+//  produced into stock (Production tab) at a foundry or in your own fab.
+//  Pushing everything is possible – but big dies yield badly and only a few
+//  dies on a wafer reach a high clock, so the price climbs steeply.
 // ============================================================================
 
-// a modest, valid 5×5 starter: one CPU core wrapped in cache, GPU fed by two memory channels
-// (blocks you have not researched turn into cache)
-const PRESET = [
-  ['io', 0, 0], ['cache', 1, 0], ['pcore', 2, 0], ['cache', 3, 0], ['dsp', 4, 0],
-  ['cache', 0, 1], ['cache', 1, 1], ['cache', 3, 1], ['isp', 4, 1],
-  ['gpu', 0, 2], ['cache', 2, 2], ['ecore', 3, 2], ['ecore', 4, 2],
-  ['cache', 2, 3], ['ecore', 3, 3], ['ecore', 4, 3],
-  ['io', 0, 4], ['media', 1, 4], ['cache', 2, 4], ['modem', 3, 4],
-];
+function fmtClock(ghz) { return ghz >= 1 ? ghz.toFixed(2) + ' GHz' : ghz >= 0.001 ? (ghz * 1000).toFixed(ghz < 0.01 ? 1 : 0) + ' MHz' : (ghz * 1e6).toFixed(0) + ' kHz'; }
+const CHIP_OPTS = [['b64', 'chip_64', '64-bit cores', '+15% CPU'], ['dvfs', 'chip_dvfs', 'Dynamic voltage scaling', '−15% power'],
+  ['brt', 'chip_rt', 'Ray-tracing GPU', '+20% GPU'], ['b3d', 'chip_3d', '3D-stacked cache', '+12% CPU & GPU']];
 
-function lockReason(id) { const u = techUI(id); return TECH[id].name + ': ' + (u.msg || 'research it first'); }
-function blockLocked(type, av) {
-  const id = BLOCKS[type].tech;
-  return id && !av.ok(id) ? id : null;
+// pack the blocks into a near-square die for the picture (memory controllers and modems on the rim)
+function packDie(n) {
+  const list = [];
+  for (const ty of ['gpu', 'npu', 'modem', 'io', 'pcore', 'cache', 'ecore', 'isp', 'dsp', 'media']) for (let k = 0; k < (n[ty] || 0); k++) list.push(ty);
+  const cells = list.reduce((a, ty) => a + BLOCKS[ty].w * BLOCKS[ty].h, 0);
+  const W = Math.max(3, Math.ceil(Math.sqrt(cells * 1.1)));
+  const grid = [], placed = [];
+  const busy = (x, y) => !!(grid[y] && grid[y][x]);
+  const fits = (x, y, w, h) => x + w <= W && [...Array(h)].every((_, j) => [...Array(w)].every((__, i) => !busy(x + i, y + j)));
+  const mark = (x, y, w, h) => { for (let j = 0; j < h; j++) { grid[y + j] = grid[y + j] || []; for (let i = 0; i < w; i++) grid[y + j][x + i] = true; } };
+  for (const ty of list) {
+    const b = BLOCKS[ty];
+    let done = false;
+    for (let y = 0; !done && y < 400; y++) for (let x = 0; !done && x < W; x++) {
+      for (const [w, h] of [[b.w, b.h], [b.h, b.w]]) {
+        if (!fits(x, y, w, h) || (b.edge && !(x === 0 || y === 0 || x + w === W))) continue;
+        mark(x, y, w, h); placed.push({ ty, x, y, w, h }); done = true; break;
+      }
+    }
+  }
+  return { W, H: Math.max(3, grid.length), placed };
 }
 
-const ChipLab = {
-  name: 'Chip Lab', icon: '💠', live: false,
-  sel: 'pcore', rot: false, heat: false, hover: null,
-  render(el) {
-    if (!S.chipDraft) S.chipDraft = defaultChipDraft();
-    const dr = S.chipDraft;
-    const nodes = nodesForDesign();
-    if (!nodes.some(n => n.nm === dr.nm)) { dr.nm = nodes[nodes.length - 1].nm; }
-    const node = nodeByNm(dr.nm);
-    dr.clock = clamp(dr.clock, node.fnom * 0.6, node.fnom * 1.25);
-    const av = playerAv();
-    el.innerHTML = `
-      <div class="view-title"><h1>💠 Chip Lab</h1><p>Floorplan a system-on-chip. Place blocks on the die, balance speed against heat, area and yield, then tape it out.</p></div>
-      <div class="chiplab">
-        <div class="col">
-          <div class="card"><h2>Blocks <span class="sub">R rotate · right-click remove</span></h2>
-            <div class="palette">${BLOCK_ORDER.map(type => {
-              const b = BLOCKS[type], lock = blockLocked(type, av);
-              return `<button class="pal ${this.sel === type ? 'on' : ''} ${lock ? 'locked' : ''}" data-pal="${type}" title="${esc(b.desc + (lock ? '\n🔒 ' + lockReason(lock) : ''))}">
-                <div class="ic" style="background:${b.color}">${b.short}</div>
-                <div><div class="nm">${b.name}${lock ? ' 🔒' : ''}</div><div class="ds">${b.w}×${b.h} cells · ${blockPower(type, node, dr.clock).toFixed(2)} W${b.edge ? ' · edge' : ''}</div></div></button>`;
-            }).join('')}
-              <button class="pal ${this.sel === 'erase' ? 'on' : ''}" data-pal="erase"><div class="ic" style="background:#3a4560;color:#fff">✕</div><div><div class="nm">Erase</div><div class="ds">Click blocks to remove</div></div></button>
-            </div>
-          </div>
-          <div class="card"><h2>Your chips</h2>${this.myChips()}</div>
-        </div>
-        <div class="col">
-          <div class="card">
-            <div class="die-ctl">
-              <input type="text" id="chipName" value="${esc(dr.name)}" maxlength="24" style="width:150px" title="Chip name">
-              <select id="chipNode" title="Process node">${nodes.map(n => `<option value="${n.nm}" ${n.nm === dr.nm ? 'selected' : ''}>${nodeLabel(n.nm)} · ${fmtMoney(waferPrice(n, now()))}/wafer${hasFab(n.nm) ? ' · your fab' : ''}</option>`).join('')}</select>
-              <span class="row nowrap" style="gap:6px"><span class="dim small">Die</span>
-              <span class="stepper"><button data-act="w-">−</button><span>${dr.w}</span><button data-act="w+">+</button></span>
-              <span class="dim">×</span>
-              <span class="stepper"><button data-act="h-">−</button><span>${dr.h}</span><button data-act="h+">+</button></span></span>
-            </div>
-            <div class="die-ctl mt-s">
-              <span class="dim small">Clock</span>
-              <input type="range" id="chipClock" min="${node.fnom * 0.6}" max="${node.fnom * 1.25}" step="${node.fnom / 100}" value="${dr.clock}" style="width:180px">
-              <b id="clockVal" class="mono">${fmtClock(dr.clock)}</b>
-              <label class="chk"><input type="checkbox" id="heatT" ${this.heat ? 'checked' : ''}> 🌡 Heat map</label>
-              <button class="btn sm" data-act="rot">⟳ Rotate (R)</button>
-              <button class="btn sm" data-act="preset" title="Fill a 5×5 die with a simple, valid starter layout you can improve on">✨ Starter layout</button>
-              <button class="btn sm danger" data-act="clear">Clear</button>
-            </div>
-          </div>
-          <div class="die-wrap" id="dieWrap"></div>
-          <div class="note small">💡 <b>How it works:</b> each block's power and performance scale with the process node — the same GPU block on 5nm holds ~90× more transistors than on 90nm.
-            SRAM cache boosts every core it touches. P-cores and GPUs are hot: pack them together and the hotspot throttles the whole chip.
-            Empty cells are wasted silicon you still pay for, and bigger dies have lower yield.</div>
-        </div>
-        <div class="col stats-col" id="chipStats"></div>
-      </div>`;
-    this.bind(el);
-    this.drawDie();
-    this.stats();
-  },
-  myChips() {
-    if (!S.chips.length) return '<div class="dim small">No chips yet. Design one and tape it out!</div>';
-    return `<table class="tbl">${S.chips.slice().reverse().map(c => `<tr>
-      <td><b>${esc(c.name)}</b><div class="tiny faint">${nodeLabel(c.stats.nm)} · ${c.stats.area} mm² · CPU ${fmtSci(c.stats.cpu)}</div></td>
-      <td class="num">${c.status === 'ready' ? '<span class="tag good">ready</span>' : `<span class="tag warn">${Math.max(0, c.readyDay - S.day)}d</span>`}
-      <div><button class="btn sm mt-s" data-edit="${c.id}" title="Load as a new revision">Revise</button></div></td></tr>
-      ${c.status === 'ready' ? `<tr><td colspan="2"><label class="chk small" title="Rival brands may buy it if it beats the vendors' chips on value"><input type="checkbox" data-list="${c.id}" ${c.listed ? 'checked' : ''}> Sell to other brands at</label>
-        $<input type="number" data-lprice="${c.id}" value="${(c.listPrice || Math.round(customChipCost(c.stats, now()).e.foundry * 2.2 * 100) / 100).toFixed(2)}" step="0.5" min="1" style="width:76px">
-        <div class="tiny faint">Cost ${fmtMoney(customChipCost(c.stats, now()).e[hasFab(c.stats.nm) ? 'own' : 'foundry'])}/chip · sold ${fmtNum(c.sold || 0)}</div></td></tr>` : ''}`).join('')}</table>`;
-  },
-  cellPx() { const dr = S.chipDraft; return Math.floor(Math.min(56, 470 / Math.max(dr.w, dr.h))); },
-  drawDie() {
-    const dr = S.chipDraft, wrap = $('#dieWrap');
-    if (!wrap) return;
-    const ev = evalChipDesign(chipDesignFromDraft(dr, playerAv()));
-    const C = this.cellPx();
-    let h = `<div class="die" id="die" style="width:${dr.w * C}px;height:${dr.h * C}px">`;
-    for (let y = 0; y < dr.h; y++) for (let x = 0; x < dr.w; x++) h += `<div class="cell" style="left:${x * C}px;top:${y * C}px;width:${C}px;height:${C}px"></div>`;
-    dr.blocks.forEach((b, i) => {
-      const u = ev.units[i];
-      const bonus = (b.type === 'pcore' || b.type === 'ecore' || b.type === 'gpu' || b.type === 'npu') && u.adj ? `<span class="bn">+${u.adj}$</span>` : '';
-      h += `<div class="blk ${u.valid ? '' : 'bad'}" data-blk="${i}" style="left:${b.x * C + 1}px;top:${b.y * C + 1}px;width:${b.w * C - 2}px;height:${b.h * C - 2}px;background:${BLOCKS[b.type].color}" title="${esc(BLOCKS[b.type].name + (u.valid ? '' : ' — must touch the die edge!'))}">${BLOCKS[b.type].short}${bonus}</div>`;
-    });
-    if (this.heat) {
-      ev.heat.forEach((T, k) => {
-        const x = k % dr.w, y = Math.floor(k / dr.w);
-        const a = clamp((T - 45) / 60, 0, 0.85);
-        const col = T > 90 ? `rgba(255,40,40,${a})` : `rgba(255,${Math.round(200 - (T - 45) * 2)},60,${a * 0.8})`;
-        h += `<div class="heat" style="left:${x * C}px;top:${y * C}px;width:${C}px;height:${C}px;background:${col}"></div>`;
-      });
+Object.assign(PartsLab, {
+  chipCfg() {
+    let c = S.chipDraft;
+    if (!c || !c.n) c = S.chipDraft = defaultChipDraft();
+    const nodes = nodesForDesign(), av = playerAv();
+    if (!nodes.some(x => x.nm === c.nm)) c.nm = nodes[nodes.length - 1].nm;
+    for (const ty of BLOCK_ORDER) {
+      const [lo, hi] = CHIP_LIMITS[ty];
+      let v = c.n[ty] == null ? lo : c.n[ty];
+      if (BLOCKS[ty].tech && !av.ok(BLOCKS[ty].tech)) v = 0;
+      c.n[ty] = clamp(v, ty === 'pcore' || ty === 'io' || ty === 'cache' ? lo : 0, hi);
     }
-    if (!dr.blocks.length) h += `<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;pointer-events:none" class="small dim die-hint"><div>Pick a block on the left, then click the die to place it.<br>New to chips? Try <b>✨ Starter layout</b>.</div></div>`;
-    h += '<div class="ghost hidden" id="ghost"></div></div>';
-    h += `<div class="tiny faint">${(dr.w * CELL_MM).toFixed(1)} × ${(dr.h * CELL_MM).toFixed(1)} mm die · each cell ${CELL_MM2} mm² · selected: <b>${this.sel === 'erase' ? 'Erase' : BLOCKS[this.sel].name}${this.rot ? ' (rotated)' : ''}</b></div>`;
-    wrap.innerHTML = h;
-    this.bindDie();
+    c.clk = clamp(c.clk || 1, 0.6, 1.25);
+    return c;
   },
-  blockDims(type) { const b = BLOCKS[type]; return this.rot ? [b.h, b.w] : [b.w, b.h]; },
-  fits(x, y, w, h) {
-    const dr = S.chipDraft;
-    if (x < 0 || y < 0 || x + w > dr.w || y + h > dr.h) return false;
-    return !dr.blocks.some(b => x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y);
+  chipEval() { return evalProcessor(this.chipCfg(), playerAv().ok, now()); },
+
+  renderChip(el) {
+    const c = this.chipCfg(), av = playerAv();
+    const node = nodeByNm(c.nm), nodes = nodesForDesign();
+    el.innerHTML = `
+      <div class="view-title"><h1>🛠️ Parts Lab</h1><p>Engineer your own components instead of buying standard parts. Every part type has its own real-world design system.</p></div>
+      <div class="lab-tabs">${LAB_TABS.map(([id, ic, nm]) => {
+        const k = id === 'chip' ? S.chips.length : S.designs.filter(d => d.type === id).length;
+        return `<button class="lab-tab ${id === 'chip' ? 'on' : ''}" data-labtab="${id}"><span class="lab-tab-ic">${ic}</span><span>${nm}</span>${k ? `<span class="lab-tab-n">${k}</span>` : ''}</button>`;
+      }).join('')}</div>
+      <div class="lab3">
+        <section class="lab-ctl card">
+          <div class="lab-name"><span class="dim small">💠 Processor design</span>
+            <input type="text" id="chipName" value="${esc(c.name)}" maxlength="24" placeholder="Name your chip"></div>
+          <h3>Process node</h3>
+          <select id="chipNode" class="full">${nodes.slice().reverse().map(x => `<option value="${x.nm}" ${x.nm === c.nm ? 'selected' : ''}>${nodeLabel(x.nm)} · ${fmtMoney(waferPrice(x, now()))}/wafer${hasFab(x.nm) ? ' · your fab' : ''}${now() < x.year ? ' ◆ ahead of the foundries' : ''}</option>`).join('')}</select>
+          <div class="tiny faint mt-s">${node.density >= 1 ? node.density.toFixed(0) : node.density.toPrecision(2)} M transistors/mm² · nominal clock ${fmtClock(node.fnom)} · ${defectDensity(node, now()).toFixed(2)} defects/cm² right now</div>
+          <h3>Blocks on the die</h3>
+          <div class="chip-blocks">${BLOCK_ORDER.map(ty => this.chipBlockRow(ty, c, node, av)).join('')}</div>
+          <h3>Clock</h3>
+          <div class="cap"><div class="row between"><span class="dim small">Clock speed</span><b class="mono" id="clkShow">${fmtClock(node.fnom * c.clk)} · ${Math.round(c.clk * 100)}%</b></div>
+            <input type="range" id="chipClock" min="0.6" max="1.25" step="0.01" value="${c.clk}">
+            <div class="row between tiny faint"><span>cool & cheap</span><span>only the best dies (binning)</span></div></div>
+          <h3>Options</h3>
+          ${CHIP_OPTS.map(([k, id, title, sub]) => labToggle('chipopt.' + k, title, sub, id, !!c[k] && av.ok(id))).join('')}
+        </section>
+        <section class="lab-viz" id="chipViz"></section>
+        <aside class="lab-side" id="chipSide"></aside>
+      </div>
+      <div class="card mt">${this.chipList()}</div>`;
+    this.chipRefresh();
+    this.bindChip(el);
   },
-  bindDie() {
-    const die = $('#die'), ghost = $('#ghost'), C = this.cellPx(), dr = S.chipDraft;
-    const cellAt = e => { const r = die.getBoundingClientRect(); return [Math.floor((e.clientX - r.left) / C), Math.floor((e.clientY - r.top) / C)]; };
-    die.onmousemove = e => {
-      if (this.sel === 'erase' || !BLOCKS[this.sel]) { ghost.classList.add('hidden'); return; }
-      const [w, h] = this.blockDims(this.sel);
-      let [x, y] = cellAt(e);
-      x = clamp(x - Math.floor((w - 1) / 2), 0, dr.w - w); y = clamp(y - Math.floor((h - 1) / 2), 0, dr.h - h);
-      this.hover = [x, y];
-      const ok = this.fits(x, y, w, h) && !blockLocked(this.sel, playerAv());
-      ghost.className = 'ghost ' + (ok ? 'ok' : 'no');
-      Object.assign(ghost.style, { left: x * C + 'px', top: y * C + 'px', width: w * C + 'px', height: h * C + 'px' });
-    };
-    die.onmouseleave = () => { ghost.classList.add('hidden'); this.hover = null; };
-    die.onclick = e => {
-      const blk = e.target.closest('[data-blk]');
-      if (this.sel === 'erase' && blk) { dr.blocks.splice(+blk.dataset.blk, 1); return this.changed(); }
-      if (!BLOCKS[this.sel]) return;
-      const lock = blockLocked(this.sel, playerAv());
-      if (lock) return toast('🔒 ' + lockReason(lock), 'bad');
-      const [w, h] = this.blockDims(this.sel);
-      if (!this.hover) die.onmousemove(e);
-      const [x, y] = this.hover;
-      if (this.fits(x, y, w, h)) { dr.blocks.push({ type: this.sel, x, y, w, h }); this.changed(); }
-      else if (blk) { dr.blocks.splice(+blk.dataset.blk, 1); this.changed(); }
-    };
-    die.oncontextmenu = e => {
-      e.preventDefault();
-      const blk = e.target.closest('[data-blk]');
-      if (blk) { dr.blocks.splice(+blk.dataset.blk, 1); this.changed(); }
-    };
+  chipBlockRow(ty, c, node, av) {
+    const b = BLOCKS[ty], [lo, hi] = CHIP_LIMITS[ty], v = c.n[ty] || 0;
+    const locked = b.tech && !av.ok(b.tech);
+    const min = ty === 'pcore' || ty === 'io' || ty === 'cache' ? lo : 0;
+    return `<div class="chip-row ${locked ? 'locked' : ''}" title="${esc(b.desc)}">
+      <span class="chip-ic" style="background:${b.color}">${b.short}</span>
+      <div class="chip-nm"><b>${b.name}</b><span class="tiny faint">${b.w * b.h * CELL_MM2 * 1.25} mm² · ${blockPower(ty, node, node.fnom * c.clk).toFixed(2)} W each${b.edge ? ' · die edge' : ''}</span>
+        ${locked ? lockFoot(techUI(b.tech)) : ''}</div>
+      ${locked ? '' : `<span class="stepper"><button data-cstep="${ty}:-1" ${v <= min ? 'disabled' : ''}>−</button><span>${v}</span><button data-cstep="${ty}:1" ${v >= hi ? 'disabled' : ''}>+</button></span>`}
+    </div>`;
   },
-  changed() { this.drawDie(); this.stats(); },
-  bind(el) {
-    const dr = S.chipDraft;
+  chipRefresh() {
+    const c = this.chipCfg(), st = this.chipEval(), t = now();
+    const viz = $('#chipViz'), side = $('#chipSide');
+    if (!viz || !side) return;
+    viz.innerHTML = this.chipViz(c, st);
+    side.innerHTML = this.chipSide(c, st, t);
+    const show = $('#clkShow');
+    if (show) show.textContent = `${fmtClock(nodeByNm(c.nm).fnom * c.clk)} · ${Math.round(c.clk * 100)}%`;
+  },
+  chipViz(c, st) {
+    const pk = packDie(c.n), C = Math.max(10, Math.min(30, Math.floor(380 / Math.max(pk.W, pk.H))));
+    const hot = st.hotT > 75 ? clamp((st.hotT - 75) / 40, 0, 0.6) : 0;
+    const side = Math.sqrt(st.area);
+    let svg = `<svg class="chip-die" width="${pk.W * C + 16}" height="${pk.H * C + 16}" viewBox="-8 -8 ${pk.W * C + 16} ${pk.H * C + 16}">
+      <rect x="-6" y="-6" width="${pk.W * C + 12}" height="${pk.H * C + 12}" rx="4" class="chip-pkg"/>`;
+    for (const b of pk.placed) {
+      const B = BLOCKS[b.ty], heat = B.hot ? hot : 0;
+      svg += `<rect x="${b.x * C + 1}" y="${b.y * C + 1}" width="${b.w * C - 2}" height="${b.h * C - 2}" rx="3" fill="${B.color}"/>`;
+      if (heat) svg += `<rect x="${b.x * C + 1}" y="${b.y * C + 1}" width="${b.w * C - 2}" height="${b.h * C - 2}" rx="3" fill="rgba(255,40,30,${heat.toFixed(2)})"/>`;
+      if (C * Math.min(b.w, b.h) >= 18) svg += `<text x="${(b.x + b.w / 2) * C}" y="${(b.y + b.h / 2) * C + 4}" class="chip-lbl">${B.short}</text>`;
+    }
+    svg += '</svg>';
+    const pc = processorCost(st, now());
+    return `<div class="card"><h2>Die <span class="sub">${side.toFixed(1)} × ${side.toFixed(1)} mm · ${st.area} mm² · ${st.transistors >= 1 ? st.transistors.toFixed(1) + ' B' : Math.round(st.transistors * 1000) + ' M'} transistors</span></h2>
+        <div class="chip-die-wrap">${svg}</div>
+        <div class="tiny faint center">${st.hotT > 75 ? `Red tint = heat. Hotspot ${Math.round(st.hotT)}°C${st.hotT > 90 ? ` – throttles to ${Math.round(st.hotFactor * 100)}%` : ''}.` : `Hotspot ${Math.round(st.hotT)}°C – runs cool.`}</div></div>
+      <div class="card"><h2>Where the money goes <span class="sub">per good chip</span></h2>
+        ${labRows([
+          ['Silicon', fmtMoney(pc.e.waferPrice / pc.e.good), '', `${fmtMoney(pc.e.waferPrice)} wafer ÷ ${Math.round(pc.e.good)} good dies`],
+          ['Clock binning', pc.bin < 0.995 ? '+' + fmtMoney(pc.e.waferPrice / pc.e.good * (1 / pc.bin - 1)) : '—', pc.bin < 0.5 ? 'bad' : '', `${Math.round(pc.bin * 100)}% of good dies reach this clock`],
+          ['Package & test', fmtMoney(pc.e.pack)], ['CPU/GPU IP license', fmtMoney(pc.e.ip)],
+          ['Total (foundry)', `<b>${fmtMoney(pc.foundry)}</b>`],
+        ])}
+        <div class="note small mt-s">💡 More blocks = a bigger die: fewer dies per wafer, and each mm² raises the chance a die has a defect (Poisson yield). Clocks above nominal only come from the best dies. Cache feeds the cores and GPU; memory controllers keep a big GPU fed.</div></div>`;
+  },
+  chipSide(c, st, t) {
+    const pc = processorCost(st, t), fab = hasFab(c.nm), early = t < nodeByNm(c.nm).year;
+    const vs = vendorChipsAvailable(t);
+    const mid = vs.filter(x => x.tier === 'mid').sort((a, b) => b.cpu - a.cpu)[0], flag = flagshipChip(t);
+    const col = (x, own) => x ? [fmtSci(x.cpu), x.gpu ? fmtSci(x.gpu) : '—', x.tops ? x.tops.toFixed(1) : '—', x.power.toFixed(2) + ' W', own ? fmtMoney(fab ? pc.own : pc.foundry) : fmtMoney(vendorChipPrice(x, t))] : ['—', '—', '—', '—', '—'];
+    const rows = ['CPU', 'GPU', 'AI (TOPS)', 'Power', 'Price / chip'];
+    const a = col(mid), f = col(flag), y = col(st, true);
+    const prob = chipProblems(c), cost = tapeOutCost(c.nm, st.area), days = tapeOutDays(st.area);
+    const sustain = st.power > 0 ? clamp(4.5 / st.power, 0.35, 1) : 1;
+    return `<div class="card"><h2>💠 Specs</h2>${labRows([
+        ['CPU', fmtSci(st.cpu)], ['Single core', fmtSci(st.single)], ['GPU', st.gpu ? fmtSci(st.gpu) : '—'], ['AI', st.tops ? st.tops.toFixed(1) + ' TOPS' : '—'],
+        ['Cores', `${st.pCores} big${st.eCores ? ' + ' + st.eCores + ' efficiency' : ''}`], ['Architecture', 'v' + st.arch],
+        ['Modem', st.hasModem ? GEN_LABEL(st.modemGen) : st.dsp ? 'DSP only' : 'separate chip'],
+        ['Power', st.power.toFixed(2) + ' W', st.power > 6 ? 'bad' : ''], ['Hotspot', Math.round(st.hotT) + '°C', st.hotT > 90 ? 'bad' : ''],
+        ['In a phone', `~${Math.round(sustain * 100)}% sustained`, sustain < 0.75 ? 'bad' : '', 'A typical phone body sheds ~4–5 W; more than that throttles'],
+      ])}</div>
+      <div class="card"><h2>⚖️ vs. vendor chips</h2>
+        <table class="tbl lab-cmp"><thead><tr><th></th><th class="num">Mid</th><th class="num">Flagship</th><th class="num">Yours</th></tr></thead><tbody>
+        ${rows.map((r, i) => `<tr><td class="dim">${r}</td><td class="num">${a[i]}</td><td class="num">${f[i]}</td><td class="num"><b>${y[i]}</b></td></tr>`).join('')}</tbody></table>
+        <div class="tiny faint mt-s">${flag ? esc(flag.name) + ' is today\'s top vendor chip.' : ''} Vendors charge for performance; your own chip costs only its silicon.</div></div>
+      <div class="card"><h2>🏭 Production</h2>${labRows([
+        ['Dies per wafer', fmtNum(pc.e.dpw)], ['Yield', fmtPct(pc.e.yield, 0), pc.e.yield < 0.5 ? 'bad' : ''], ['Clock bin', fmtPct(pc.bin, 0), pc.bin < 0.5 ? 'bad' : ''],
+        ['Foundry price', early ? 'not offered yet' : fmtMoney(pc.foundry)], ['Your fab', fab ? fmtMoney(pc.own) : 'not built'],
+      ])}<div class="tiny faint mt-s">Chips are produced into stock from the 📦 Production tab. Foundry wafers take ~2½ months to come back.</div></div>
+      <div class="card lab-eng">
+        ${st.issues.map(i => `<div class="note ${i.err ? 'bad' : 'warn'}">${i.err ? '⛔' : '⚠️'} ${esc(i.text)}</div>`).join('')}
+        ${prob && !st.issues.some(i => i.err && i.text === prob) ? `<div class="note bad">⛔ ${esc(prob)}</div>` : ''}
+        <button class="btn primary lg lab-go" data-act="tapeout" ${prob ? 'disabled' : ''} title="${esc(prob || '')}">📤 Tape out · ${fmtMoney(cost)} · ${Math.round(days / 30)} mo</button>
+        <div class="tiny faint">Mask set, verification and first silicon. Afterwards the chip shows up in the Phone Lab's chip list and in Production.</div></div>`;
+  },
+  chipList() {
+    const head = `<h2>📁 Your processors <span class="sub">${S.chips.length ? S.chips.length + ' taped out' : ''}</span></h2>`;
+    if (!S.chips.length) return head + '<div class="dim small">None yet. Tune the design above and hit <b>Tape out</b>.</div>';
+    const t = now();
+    return head + `<div class="lab-dlist">${S.chips.slice().reverse().map(c => {
+      const pc = processorCost(c.stats, t), cost = hasFab(c.stats.nm) ? pc.own : pc.foundry;
+      const inUse = S.products.some(p => p.status !== 'retired' && p.spec.chip && p.spec.chip.kind === 'custom' && p.spec.chip.id === c.id);
+      return `<div class="lab-drow">
+        <div class="lab-dmain"><b>${esc(c.name)}</b> ${c.status === 'ready' ? '<span class="tag good">ready</span>' : `<span class="tag warn">first silicon in ${Math.max(0, c.readyDay - S.day)} d</span>`}${inUse ? '<span class="tag acc">in production</span>' : ''}
+          <div class="tiny faint">${nodeLabel(c.stats.nm)} · ${c.stats.area} mm² · CPU ${fmtSci(c.stats.cpu)} · GPU ${c.stats.gpu ? fmtSci(c.stats.gpu) : '—'} · ${c.stats.power.toFixed(2)} W · ${fmtMoney(cost)}/chip · stock ${fmtNum(c.stock || 0)}</div>
+          ${c.status === 'ready' ? `<label class="chk small" title="Rival brands may buy it if it beats the vendors' chips on value"><input type="checkbox" data-list="${c.id}" ${c.listed ? 'checked' : ''}> Sell to other brands at</label>
+            $<input type="number" data-lprice="${c.id}" value="${(c.listPrice || Math.round(cost * 2.2 * 100) / 100).toFixed(2)}" step="0.5" min="1" style="width:80px"> <span class="tiny faint">sold ${fmtNum(c.sold || 0)}</span>` : ''}</div>
+        <div class="lab-dact">${c.cfg ? `<button class="btn sm" data-act="crevise" data-id="${c.id}">Load as revision</button>` : ''}
+          ${c.status === 'ready' ? `<button class="btn sm primary" data-act="cuse" data-id="${c.id}">Use in Phone Lab →</button>` : ''}</div></div>`;
+    }).join('')}</div>`;
+  },
+  bindChip(el) {
+    const self = this;
     el.onclick = e => {
-      const pal = e.target.closest('[data-pal]');
-      if (pal) {
-        const type = pal.dataset.pal;
-        const lock = type !== 'erase' && blockLocked(type, playerAv());
-        if (lock) return toast('🔒 ' + lockReason(lock), 'bad');
-        this.sel = type; this.render(el); return;
-      }
-      const ed = e.target.closest('[data-edit]');
-      if (ed) {
-        const c = S.chips.find(x => x.id === ed.dataset.edit);
-        S.chipDraft = JSON.parse(JSON.stringify(c.design));
-        S.chipDraft.name = c.name.replace(/( v\d+)?$/, m => ' v' + ((parseInt((m || '').replace(/\D/g, '')) || 1) + 1));
-        this.render(el); toast('Loaded ' + c.name + ' as a new revision.');
-        return;
-      }
-      const a = e.target.closest('[data-act]');
-      if (!a) return;
-      const act = a.dataset.act;
-      if (act === 'w-' || act === 'w+' || act === 'h-' || act === 'h+') {
-        const k = act[0], d = act[1] === '+' ? 1 : -1;
-        dr[k] = clamp(dr[k] + d, 3, 10);
-        dr.blocks = dr.blocks.filter(b => b.x + b.w <= dr.w && b.y + b.h <= dr.h);
-        this.render(el);
-      }
-      if (act === 'rot') { this.rot = !this.rot; this.drawDie(); }
-      if (act === 'clear') { dr.blocks = []; this.changed(); }
-      if (act === 'preset') {
-        const av = playerAv();
-        dr.w = 5; dr.h = 5;
-        dr.blocks = [];
-        for (const [type, x, y] of PRESET) {
-          if (!blockLocked(type, av)) { dr.blocks.push({ type, x, y, w: BLOCKS[type].w, h: BLOCKS[type].h }); continue; }
-          // a locked block's cells become SRAM cache instead
-          for (let yy = y; yy < y + BLOCKS[type].h; yy++) for (let xx = x; xx < x + BLOCKS[type].w; xx++) dr.blocks.push({ type: 'cache', x: xx, y: yy, w: 1, h: 1 });
-        }
-        this.render(el);
-      }
-      if (act === 'tapeout') {
-        const design = chipDesignFromDraft(dr, playerAv());
-        confirmBox('Tape out ' + esc(dr.name) + '?', `Mask set + engineering: <b>${fmtMoney(tapeOutCost(design))}</b>. First silicon arrives in ~4 months, then the chip can be used in any device.`, 'Tape out', () => {
-          const err = tapeOut(design);
-          if (report(err)) {
-            toast(dr.name + ' sent to the fab!', 'good');
-            dr.name = dr.name.replace(/\d+$/, n => +n + 1);
-            if (!/\d+$/.test(dr.name)) dr.name += ' 2';
-            this.render(el);
-          }
+      const tab = e.target.closest('[data-labtab]');
+      if (tab) { self.tab = tab.dataset.labtab; self.render(el); return; }
+      const rs = e.target.closest('[data-rs]');
+      if (rs) { if (report(startResearch(rs.dataset.rs))) { toast('Research started: ' + TECH[rs.dataset.rs].name, 'good'); renderNav(); self.renderChip(el); } return; }
+      const stp = e.target.closest('[data-cstep]');
+      if (stp && !stp.disabled) { const [ty, d] = stp.dataset.cstep.split(':'); const c = self.chipCfg(); c.n[ty] = (c.n[ty] || 0) + Number(d); self.renderChip(el); return; }
+      const tg = e.target.closest('[data-toggle]');
+      if (tg && tg.dataset.toggle.startsWith('chipopt.')) { const k = tg.dataset.toggle.slice(8), c = self.chipCfg(); c[k] = !c[k]; self.renderChip(el); return; }
+      const act = e.target.closest('[data-act]');
+      if (!act) return;
+      const a = act.dataset.act, c = self.chipCfg();
+      if (a === 'tapeout') {
+        const st = self.chipEval();
+        confirmBox('Tape out ' + esc(c.name) + '?', `Mask set + engineering: <b>${fmtMoney(tapeOutCost(c.nm, st.area))}</b>. First silicon arrives in ~${Math.round(tapeOutDays(st.area) / 30)} months. Then produce it into stock in the Production tab.`, 'Tape out', () => {
+          if (report(tapeOut(c))) { toast(`${c.name} taped out!`, 'good'); S.chipDraft = Object.assign(JSON.parse(JSON.stringify(c)), { name: bumpName(c.name) }); renderNav(); self.renderChip(el); }
         });
       }
+      if (a === 'crevise') { const ch = S.chips.find(x => x.id === act.dataset.id); if (ch && ch.cfg) { S.chipDraft = Object.assign(JSON.parse(JSON.stringify(ch.cfg)), { name: bumpName(ch.name) }); self.renderChip(el); } }
+      if (a === 'cuse') { if (S.draft) { S.draft.chip = { kind: 'custom', id: act.dataset.id }; showView('phonelab'); } }
     };
-    $('#chipName').oninput = e => { dr.name = e.target.value; };
+    el.oninput = e => {
+      const inp = e.target, c = self.chipCfg();
+      if (inp.id === 'chipName') { c.name = inp.value; return; }
+      if (inp.id === 'chipClock') { c.clk = Number(inp.value); self.chipRefresh(); }
+    };
     el.onchange = e => {
-      const l = e.target.dataset.list || e.target.dataset.lprice;
-      if (!l) return;
-      const c = S.chips.find(x => x.id === l);
-      const price = +$(`[data-lprice="${l}"]`, el).value;
-      const on = $(`[data-list="${l}"]`, el).checked;
-      listChip(c, on ? price : 0);
-      this.render(el);
+      const inp = e.target, c = self.chipCfg();
+      if (inp.id === 'chipNode') { c.nm = Number(inp.value); self.renderChip(el); return; }
+      if (inp.id === 'chipClock') { self.renderChip(el); return; }
+      const lc = inp.dataset.list || inp.dataset.lprice;
+      if (lc) {
+        const ch = S.chips.find(x => x.id === lc);
+        if (!ch) return;
+        const priceEl = $(`[data-lprice="${lc}"]`, el), box = $(`[data-list="${lc}"]`, el);
+        listChip(ch, box && box.checked ? Number(priceEl.value) : 0);
+        self.renderChip(el);
+      }
     };
-    $('#chipNode').onchange = e => { dr.nm = Number(e.target.value); dr.clock = nodeByNm(dr.nm).fnom; this.render(el); };
-    $('#chipClock').oninput = e => { dr.clock = Number(e.target.value); $('#clockVal').textContent = fmtClock(dr.clock); this.changed(); };
-    $('#heatT').onchange = e => { this.heat = e.target.checked; this.drawDie(); };
   },
-  stats() {
-    const box = $('#chipStats');
-    if (!box) return;
-    const dr = S.chipDraft, av = playerAv(), t = now();
-    const design = chipDesignFromDraft(dr, av);
-    const ev = evalChipDesign(design);
-    const e = chipEconomics(ev.area, dr.nm, t);
-    const node = nodeByNm(dr.nm);
-    const vs = vendorChipsAvailable(t);
-    const flag = flagshipChip(t);
-    const mid = vs.filter(c => c.tier === 'mid').sort((a, b) => b.cpu - a.cpu)[0] || vs.filter(c => c.tier === 'budget')[0];
-    const cmp = (v, ref) => ref ? `<span class="${v >= ref ? 'good' : 'dim'}">${Math.round(v / ref * 100)}%</span>` : '';
-    const fab = hasFab(dr.nm);
-    const early = t < node.year;
-    box.innerHTML = `
-      <div class="card"><h2>Performance <span class="sub">arch v${design.arch} · ${GEN_LABEL(design.modemGen)} modem tech</span></h2>
-        <table class="tbl">
-          <tr><th></th><th class="num">Yours</th><th class="num" title="${esc(mid ? mid.name : '')}">vs mid</th><th class="num" title="${esc(flag.name)}">vs flagship</th></tr>
-          <tr><td>CPU (multi)</td><td class="num"><b>${fmtSci(ev.cpu)}</b></td><td class="num">${cmp(ev.cpu, mid && mid.cpu)}</td><td class="num">${cmp(ev.cpu, flag.cpu)}</td></tr>
-          <tr><td>CPU (single)</td><td class="num">${fmtSci(ev.single)}</td><td class="num">${cmp(ev.single, mid && mid.single)}</td><td class="num">${cmp(ev.single, flag.single)}</td></tr>
-          <tr><td>GPU (GFLOPS)</td><td class="num"><b>${ev.gpu ? fmtSci(ev.gpu) : '—'}</b></td><td class="num">${cmp(ev.gpu, mid && mid.gpu)}</td><td class="num">${cmp(ev.gpu, flag.gpu)}</td></tr>
-          <tr><td>AI (TOPS)</td><td class="num">${ev.tops ? ev.tops.toFixed(1) : '—'}</td><td class="num">${mid && mid.tops ? cmp(ev.tops, mid.tops) : ''}</td><td class="num">${flag.tops ? cmp(ev.tops, flag.tops) : ''}</td></tr>
-          <tr><td>ISP</td><td class="num">${ev.isp ? fmtSci(ev.isp) : '—'}</td><td class="num">${mid && mid.isp ? cmp(ev.isp, mid.isp) : ''}</td><td class="num">${flag.isp ? cmp(ev.isp, flag.isp) : ''}</td></tr>
-          <tr><td>Peak power</td><td class="num"><b>${ev.power.toFixed(2)} W</b></td><td class="num dim">${mid ? mid.power.toFixed(1) : ''}</td><td class="num dim">${flag.power.toFixed(1)}</td></tr>
-          <tr><td>Hotspot</td><td class="num ${ev.hotT > 90 ? 'bad' : ev.hotT > 80 ? 'warn' : 'good'}"><b>${Math.round(ev.hotT)}°C</b></td><td colspan="2" class="num tiny ${ev.hotFactor < 1 ? 'bad' : 'faint'}">${ev.hotFactor < 1 ? 'throttling −' + Math.round((1 - ev.hotFactor) * 100) + '%' : 'limit 90°C'}</td></tr>
-        </table>
-        <div class="tiny faint mt-s">Cores: ${ev.pCores} big + ${ev.eCores} efficiency · ${ev.ioN} memory channel${ev.ioN === 1 ? '' : 's'} · ${ev.hasModem ? GEN_LABEL(ev.modemGen) + ' baseband' : 'no baseband'}${ev.dsp ? ' · DSP' : ''}</div>
-      </div>
-      <div class="card"><h2>Silicon economics</h2>
-        <div class="spec-list">
-          <span class="k">Die area</span><span class="v">${ev.area} mm² <span class="faint">(${Math.round(ev.fill * 100)}% used)</span></span>
-          <span class="k">Transistors</span><span class="v">${ev.transistors >= 1 ? ev.transistors.toFixed(1) + ' B' : ev.transistors >= 0.001 ? Math.round(ev.transistors * 1000) + ' M' : Math.round(ev.transistors * 1e6) + ' k'}</span>
-          <span class="k">Dies per ${node.waferD} mm wafer</span><span class="v">${e.dpw}</span>
-          <span class="k" title="Defects per cm² — falls as a node matures">Defect density</span><span class="v">${e.D0.toFixed(2)} /cm²</span>
-          <span class="k">Yield</span><span class="v ${e.yield < 0.6 ? 'warn' : ''}">${Math.round(e.yield * 100)}%</span>
-          <span class="k">Good dies / wafer</span><span class="v">${Math.round(e.good)}</span>
-          <span class="k">Cost per chip (foundry)</span><span class="v">${early ? '<span class="faint">not offered yet</span>' : fmtMoney(e.foundry)}</span>
-          <span class="k">Cost per chip (own fab)</span><span class="v ${fab ? 'good' : 'faint'}">${fmtMoney(e.own)}${fab ? '' : ' · no fab'}</span>
-          <span class="k">Off-the-shelf flagship</span><span class="v dim">${fmtMoney(vendorChipPrice(flag, t))}</span>
-        </div>
-        <div class="tiny faint mt-s">Yield = e<sup>−area × defects</sup>. Packaging & test add ${fmtMoney(e.pack)} and the CPU/GPU IP license ${fmtMoney(e.ip)} per chip.</div>
-      </div>
-      ${ev.issues.length ? `<div class="col">${ev.issues.map(i => `<div class="note ${i.err ? 'bad' : 'warn'}">${i.err ? '⛔' : '⚠️'} ${i.text}</div>`).join('')}</div>` : '<div class="note good">✅ Design rule check passed.</div>'}
-      <button class="btn primary lg" data-act="tapeout" ${ev.ok ? '' : 'disabled'}>📤 Tape out · ${fmtMoney(tapeOutCost(design))}</button>
-      <div class="tiny faint">Mask set ${fmtMoney(node.mask)} + design team. Masks are a one-time cost: high-volume chips amortize them best.</div>`;
-  },
-  key(e) {
-    if (e.key === 'r' || e.key === 'R') { this.rot = !this.rot; this.drawDie(); return true; }
-    if (e.key === 'Escape') { this.sel = 'erase'; this.render($('#view')); return true; }
-    return false;
-  },
-};
-registerView('chiplab', ChipLab);
-function fmtClock(ghz) { return ghz >= 1 ? ghz.toFixed(2) + ' GHz' : ghz >= 0.001 ? (ghz * 1000).toFixed(ghz < 0.01 ? 1 : 0) + ' MHz' : (ghz * 1e6).toFixed(0) + ' kHz'; }
+});

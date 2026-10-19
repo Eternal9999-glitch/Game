@@ -11,8 +11,8 @@ const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), 
 function setPath(o, p, v) { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; }
 
 const VIEWS = {};          // id -> {name, icon, render(el), live?}
-const VIEW_ORDER = ['hq', 'phonelab', 'labs', 'chiplab', 'research', 'production', 'factories', 'market', 'bench', 'investors', 'finance'];
-const NAV_SEPS = [4, 7];
+const VIEW_ORDER = ['hq', 'phonelab', 'labs', 'research', 'production', 'factories', 'market', 'bench', 'investors', 'finance'];
+const NAV_SEPS = [3, 6];
 let currentView = 'hq';
 let pointerDown = false;
 document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
@@ -26,10 +26,10 @@ function showView(id) {
   renderNav();
   const el = $('#view');
   el.scrollTop = 0;
-  renderCurrent(true);
+  renderCurrent(true, true);
 }
 // force: always re-render. 'month': re-render even static views (labs) unless the player is busy.
-function renderCurrent(force) {
+function renderCurrent(force, fresh) {
   const v = VIEWS[currentView], el = $('#view');
   if (!v) return;
   if (force !== true) {
@@ -38,9 +38,37 @@ function renderCurrent(force) {
     if (a && el.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
     if (v.live === false && force !== 'month') return;
   }
-  const scroll = el.scrollTop;
+  const scroll = el.scrollTop, inner = fresh ? [] : innerScrolls(el);
   v.render(el);
   el.scrollTop = scroll;
+  restoreScrolls(el, inner);
+}
+// re-rendering replaces the DOM: remember where every scrolled panel inside the view was
+// (the research tree, option lists…) so a live refresh never snaps it back to the start
+function scrollKey(n, el) {
+  if (n.id) return '#' + n.id;
+  let k = n.tagName + '.' + [...n.classList].join('.'), p = n.parentElement;
+  for (let d = 0; p && p !== el && d < 4; d++, p = p.parentElement) k = (p.id ? '#' + p.id : p.tagName + '.' + [...p.classList].join('.')) + '>' + k;
+  return k;
+}
+function innerScrolls(el) {
+  const out = [], seen = {};
+  for (const n of el.querySelectorAll('*')) {
+    if (!n.scrollTop && !n.scrollLeft) continue;
+    const k = scrollKey(n, el), i = seen[k] = (seen[k] || 0) + 1;
+    out.push([k, i, n.scrollLeft, n.scrollTop]);
+  }
+  return out;
+}
+function restoreScrolls(el, saved) {
+  if (!saved.length) return;
+  const seen = {}, byKey = {};
+  for (const n of el.querySelectorAll('*')) {
+    if (n.scrollHeight <= n.clientHeight && n.scrollWidth <= n.clientWidth) continue;
+    const k = scrollKey(n, el), i = seen[k] = (seen[k] || 0) + 1;
+    byKey[k + '|' + i] = n;
+  }
+  for (const [k, i, x, y] of saved) { const n = byKey[k + '|' + i]; if (n && !n.dataset.fresh) { n.scrollLeft = x; n.scrollTop = y; } }
 }
 function renderNav() {
   const nav = $('#nav');

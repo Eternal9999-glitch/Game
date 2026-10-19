@@ -322,6 +322,7 @@ const Research = {
     if (tw && this._scrollToNow) {
       const x = this._nowX || 0;
       tw.scrollLeft = Math.max(0, x - tw.clientWidth * 0.2);
+      tw.dataset.fresh = '1';       // a deliberate jump: don't restore the old scroll over it
       this._scrollToNow = false;
     }
     el.onclick = e => {

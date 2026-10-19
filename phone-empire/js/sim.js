@@ -128,8 +128,7 @@ function chipFor(spec) {
   return c ? c.stats : null;
 }
 function customChipCost(stats, t) {
-  const e = chipEconomics(stats.area, stats.nm, t);
-  return { e, fab: hasFab(stats.nm), early: t < nodeByNm(stats.nm).year };
+  return { e: processorCost(stats, t), fab: hasFab(stats.nm), early: t < nodeByNm(stats.nm).year };
 }
 
 // ---- Makers ------------------------------------------------------------------------
@@ -176,7 +175,7 @@ function productCosts(spec, t, maker) {
   else if (spec.chip.kind === 'vendor') comps.push({ key: 'chip', label: 'SoC (' + chip.vendor + ')', buy: ev.costs.chip * sm });
   else {
     const { e, fab, early } = customChipCost(chip, t);
-    comps.push({ key: 'chip', label: 'SoC (custom)', buy: early ? null : e.foundry, own: fab ? e.own : null, pool: fab ? 'fab' + chip.nm : null, wafers: 1 / e.good, buyLabel: 'foundry' });
+    comps.push({ key: 'chip', label: 'SoC (custom)', buy: early ? null : e.foundry, own: fab ? e.own : null, pool: fab ? 'fab' + chip.nm : null, wafers: e.wafers, buyLabel: 'foundry' });
   }
   const part = (key, type, label, ref, base) => {
     if (!ref || base == null) return;
@@ -216,10 +215,20 @@ function defaultDraft(cat, t) {
   d.price = Math.max(Math.round(segBudget(cat, 'mid', t) * 0.85 / 10) * 10 - 1, Math.round(cost / (1 - RETAIL_CUT) * 1.3 / 10) * 10 - 1);
   return d;
 }
+// a new processor starts from what this year's mid-range vendor chip carries (unresearched blocks left out)
 function defaultChipDraft() {
-  const nodes = nodesForDesign();
-  const node = nodes[nodes.length - 1] || NODES[0];
-  return { name: 'My SoC 1', nm: node.nm, w: 5, h: 5, clock: node.fnom, blocks: [] };
+  const nodes = nodesForDesign(), node = nodes[nodes.length - 1] || NODES[0];
+  const av = playerAv(), counts = vendorChipCounts('mid', now()), n = {};
+  for (const type of BLOCK_ORDER) {
+    const b = BLOCKS[type], [lo, hi] = CHIP_LIMITS[type];
+    let k = type === 'modem' ? (counts.modem && counts.modemGen ? 1 : 0) : counts[type] || 0;
+    if (b.tech && !av.ok(b.tech)) k = 0;
+    n[type] = clamp(k, lo, hi);
+  }
+  const brand = (S.company || 'Nimbus').split(' ')[0];
+  let i = S.chips.length + 1;
+  while (S.chips.some(c => c.name === `${brand} SoC ${i}`)) i++;
+  return { name: `${brand} SoC ${i}`, nm: node.nm, clk: 1, n, b64: true, b3d: true, brt: true, dvfs: true };
 }
 function newGame(opts) {
   const start = opts.start || FIRST_YEAR;
@@ -578,28 +587,30 @@ function engineerPart(type, name, p, role) {
 }
 
 // ---- Chips ----------------------------------------------------------------------------------
-function chipDesignFromDraft(dr, av) {
-  const t = now();
-  return Object.assign({}, dr, { arch: archGenFor(av), modemGen: bestNetGen(av.ok), b64: av.ok('chip_64'), b3d: av.ok('chip_3d'), brt: av.ok('chip_rt'), dvfs: av.ok('chip_dvfs'),
-    gpuEra: t >= 2006, modemEra: t >= 1998, dspEra: t >= 1991 && t < 1999, camEra: t >= 2003 });
+// mask sets (a respin included) + the design, verification and software team, which grows with the die
+function tapeOutCost(nm, area) { return (nodeByNm(nm).mask * 1.5 + 8e6 * ecoNow() * Math.pow(area / 50, 0.6)) * perk('tapeMul', 1); }
+const tapeOutDays = area => Math.round(100 + Math.min(80, area / 4));
+function chipProblems(cfg) {
+  const av = playerAv();
+  if (!cfg.name || !cfg.name.trim()) return 'Name your chip.';
+  if (!nodesForDesign().some(n => n.nm === cfg.nm)) return 'Research this process node first.';
+  for (const type of BLOCK_ORDER) if ((cfg.n[type] || 0) > 0 && BLOCKS[type].tech && !av.ok(BLOCKS[type].tech)) return `Research ${TECH[BLOCKS[type].tech].name} first.`;
+  const st = evalProcessor(cfg, av.ok, now());
+  return st.ok ? null : st.issues.find(i => i.err).text;
 }
-function tapeOutCost(design) {
-  const node = nodeByNm(design.nm);
-  const area = design.w * design.h * CELL_MM2;
-  return (node.mask + 1.5e6 * ecoNow() * Math.pow(area / 50, 0.7)) * perk('tapeMul', 1);
-}
-function tapeOut(design) {
-  const ev = evalChipDesign(design);
-  if (!ev.ok) return ev.issues.find(i => i.err).text;
-  if (!design.name.trim()) return 'Name your chip.';
-  const cost = tapeOutCost(design);
+function tapeOut(cfg) {
+  const prob = chipProblems(cfg);
+  if (prob) return prob;
+  const t = now(), st = evalProcessor(cfg, playerAv().ok, t);
+  const cost = tapeOutCost(cfg.nm, st.area);
   if (!canAfford(cost)) return `The mask set costs ${fmtMoney(cost)} – not enough cash.`;
   spend(cost, 'dev');
-  const stats = Object.assign({}, ev);
-  delete stats.heat; delete stats.issues; delete stats.units;
-  stats.kind = 'custom'; stats.name = design.name.trim();
-  S.chips.push({ id: uid('c'), name: design.name.trim(), design: JSON.parse(JSON.stringify(design)), stats, status: 'taping', readyDay: S.day + 120, created: now(), listed: false, listPrice: 0, sold: 0 });
-  addNews(`${design.name} taped out at ${nodeLabel(design.nm)} (${fmtMoney(cost)}). First silicon in ~4 months.`, 'info');
+  const stats = Object.assign({}, st);
+  delete stats.issues; delete stats.units;
+  stats.kind = 'custom'; stats.name = cfg.name.trim();
+  const days = tapeOutDays(st.area);
+  S.chips.push({ id: uid('c'), name: cfg.name.trim(), cfg: JSON.parse(JSON.stringify(cfg)), stats, status: 'taping', readyDay: S.day + days, created: t, listed: false, listPrice: 0, sold: 0 });
+  addNews(`${cfg.name.trim()} taped out at ${nodeLabel(cfg.nm)} (${fmtMoney(cost)}). First silicon in ~${Math.round(days / 30)} months.`, 'info');
   return null;
 }
 function listChip(c, price) {
@@ -996,8 +1007,8 @@ function produce() {
     const units = (r.demand || 0) / 30;
     const { e, fab, early } = customChipCost(c.stats, t);
     const fabKey = 'fab' + c.stats.nm;
-    const inFab = fab ? Math.min(units, (pool[fabKey] || 0) * e.good) : 0;
-    if (fab) pool[fabKey] -= inFab / e.good;
+    const inFab = fab ? Math.min(units, (pool[fabKey] || 0) / e.wafers) : 0;
+    if (fab) pool[fabKey] -= inFab * e.wafers;
     const atFoundry = early ? 0 : units - inFab;
     const sold = inFab + atFoundry;
     S.cash += sold * c.listPrice; S.month.b2b += sold * c.listPrice;

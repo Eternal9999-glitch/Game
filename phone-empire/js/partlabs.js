@@ -8,7 +8,7 @@
 //  and time; afterwards it can be used in the Phone Lab.
 // ============================================================================
 
-const LAB_TABS = [['display', '🖥️', 'Display'], ['camera', '📷', 'Camera'], ['battery', '🔋', 'Battery'], ['memory', '💾', 'Memory'], ['radio', '📶', 'Radio']];
+const LAB_TABS = [['chip', '💠', 'Processor'], ['display', '🖥️', 'Display'], ['camera', '📷', 'Camera'], ['battery', '🔋', 'Battery'], ['memory', '💾', 'Memory'], ['radio', '📶', 'Radio']];
 const LAB_NOUN = { display: 'Panel', camera: 'Optic', battery: 'Cell', memory: 'Mem', radio: 'RF' };
 const LAB_FMT = {};       // slider path -> formatter (for live labels)
 
@@ -208,13 +208,14 @@ const PartsLab = {
 
   // ---- render -----------------------------------------------------------------------
   render(el) {
+    if (this.tab === 'chip') { this.renderChip(el); return; }     // chiplab.js
     const type = this.tab;
     const dr = this.draft(type);
     const info = PART_INFO[type];
     el.innerHTML = `
       <div class="view-title"><h1>🛠️ Parts Lab</h1><p>Engineer your own components instead of buying standard parts. Every part type has its own real-world design system.</p></div>
       <div class="lab-tabs">${LAB_TABS.map(([id, ic, nm]) => {
-        const n = S.designs.filter(d => d.type === id).length;
+        const n = id === 'chip' ? S.chips.length : S.designs.filter(d => d.type === id).length;
         return `<button class="lab-tab ${id === type ? 'on' : ''}" data-labtab="${id}"><span class="lab-tab-ic">${ic}</span><span>${nm}</span>${n ? `<span class="lab-tab-n">${n}</span>` : ''}</button>`;
       }).join('')}</div>
       ${dr.p ? `<div class="lab3">

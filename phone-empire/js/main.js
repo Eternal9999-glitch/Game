@@ -59,7 +59,7 @@ function howToPlay() {
       <p>It's <b>${dateLabel(now())}</b>. You have <b>${fmtMoney(S.cash)}</b>, a garage, and a plan. Playstyle: <b>${ps.icon} ${ps.name}</b> – ${ps.tagline}</p>
       <ol style="margin:8px 0 0 20px">
         <li><b>📱 Phone Lab</b>: build a phone around the live 3D model from supplier parts – or your own designs. <b>📐 Layout</b> lets you move every port, key, grille and camera.</li>
-        <li><b>🛠️ Parts Lab</b>: engineer your own displays (layer stacks), cameras (optics), batteries (cell chemistry), memory and radios. <b>💠 Chip Lab</b>: floorplan your own processor.</li>
+        <li><b>🛠️ Parts Lab</b>: engineer your own processors (node, cores, clock), displays (layer stacks), cameras (optics), batteries (cell chemistry), memory and radios. Your parts are produced into stock – phones can't be built without them.</li>
         <li>Hit <b>🧪 Prototype</b> – investors want to hold something. Then <b>💼 Investors</b>: friends & family, angels, and later rounds that need real revenue.</li>
         <li><b>🚀 Develop & launch</b>. A production line at a contract manufacturer starts building stock automatically (<b>📦 Production</b>).</li>
         <li>Spend on <b>marketing</b> (💰 Finance), keep <b>researching</b> (🔬) – networks change, electronics shrink, rivals move on – compare your devices in <b>🏁 Benchmarks</b>, and build <b>factories</b> (🏭) when the volume is there.</li>
@@ -130,7 +130,6 @@ function bootUI() {
   document.addEventListener('keydown', e => {
     if (!S || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName)) return;
     if (!$('#modal').classList.contains('hidden')) { if (e.key === 'Escape' && !$('#modal').dataset.sticky) closeModal(); return; }
-    if (currentView === 'chiplab' && ChipLab.key(e)) return;
     if (e.key === ' ') { e.preventDefault(); document.activeElement?.blur?.(); S.speed = S.speed ? 0 : 1; renderTop(); }
     if (e.key >= '1' && e.key <= '3') { S.speed = +e.key; renderTop(); }
   });

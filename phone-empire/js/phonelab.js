@@ -324,7 +324,7 @@ const PhoneLab = {
   chipPitch(t) {
     const f = flagshipChip(t), e = chipEconomics(f.area, f.nm, t);
     return `<div class="note mt-s">💠 <b>Your own chip?</b> Vendors charge for performance: ${esc(f.name)} costs ${fmtMoney(vendorChipPrice(f, t))}, but the same silicon would cost you about ${fmtMoney(e.foundry)} from a foundry.
-      Design one in the Chip Lab (tape-out about ${fmtMoney(tapeOutCost({ nm: f.nm, w: Math.sqrt(f.area / CELL_MM2), h: Math.sqrt(f.area / CELL_MM2) }))}). The 🧠 Chip design research track only affects chips you design yourself.</div>`;
+      Design one in the 🛠️ Parts Lab → 💠 Processor (tape-out about ${fmtMoney(tapeOutCost(f.nm, f.area))}). The 🧠 Chip design research track only affects chips you design yourself.</div>`;
   },
   features(d) {
     const touch = (partParams(d.display) || {}).touch && partParams(d.display).touch !== 'none';

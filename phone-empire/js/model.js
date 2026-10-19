@@ -126,63 +126,52 @@ function evalChipCore(c) {
     transistors: c.area * node.density * (0.35 + 0.65 * fill) / 1000, // billions
   };
 }
-// Full floorplan evaluation for the chip lab. d = {nm, w, h, clock, arch, modemGen, blocks:[{type,x,y,w,h}]}
-function evalChipDesign(d) {
-  const node = nodeByNm(d.nm);
-  const W = d.w, H = d.h;
-  const grid = new Array(W * H).fill(-1);
-  d.blocks.forEach((b, i) => { for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) grid[y * W + x] = i; });
-  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? -2 : grid[y * W + x]);
-  const issues = [];
-  const units = d.blocks.map((b, i) => {
-    let adj = 0, edge = false;
-    const seen = new Set();
-    for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) {
-      if (x === 0 || y === 0 || x === W - 1 || y === H - 1) edge = true;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const j = at(x + dx, y + dy);
-        if (j >= 0 && j !== i && d.blocks[j].type === 'cache') {
-          const key = (y + dy) * W + (x + dx);
-          if (!seen.has(key)) { seen.add(key); adj++; }
-        }
-      }
-    }
-    return { type: b.type, adj, valid: !BLOCKS[b.type].edge || edge, edge };
-  });
-  const pc = new Array(W * H).fill(0);
-  d.blocks.forEach(b => {
-    const p = blockPower(b.type, node, d.clock) / (b.w * b.h);
-    for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) pc[y * W + x] = p;
-  });
-  const heat = new Array(W * H).fill(0);
-  let hotT = 30;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let s = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const xx = x + dx, yy = y + dy;
-      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
-      s += pc[yy * W + xx] * (dx === 0 && dy === 0 ? 1 : dx === 0 || dy === 0 ? 0.5 : 0.25);
-    }
-    const T = 30 + (s / 4) * 175;
-    heat[y * W + x] = T;
-    if (T > hotT) hotT = T;
+// ---- Processor designer (Parts Lab → Processor) ------------------------------------
+// cfg = {nm, clk (× the node's nominal clock), n: {block: count}, b64, b3d, brt, dvfs}
+const CHIP_LIMITS = { pcore: [1, 12], ecore: [0, 16], cache: [1, 32], dsp: [0, 2], gpu: [0, 24], npu: [0, 8], isp: [0, 4], modem: [0, 1], io: [1, 4], media: [0, 2] };
+const RETICLE_MM2 = 820;          // the biggest die a lithography scanner can print
+// only some dies on a wafer run fast: clocking above nominal means paying for the ones that don't
+const binYield = clk => (clk <= 0.95 ? 1 : Math.exp(-Math.pow((clk - 0.95) / 0.16, 2)));
+function evalProcessor(cfg, okFn, t) {
+  const node = nodeByNm(cfg.nm), n = cfg.n || {}, clk = clamp(cfg.clk || 1, 0.6, 1.25);
+  const clock = node.fnom * clk, issues = [];
+  // cache shared out over the blocks that use it (like cache cells touching them on a floorplan)
+  const hungry = (n.pcore || 0) + (n.ecore || 0) + (n.gpu || 0) + (n.npu || 0);
+  const feed = Math.min(1.2, (n.cache || 0) / Math.max(1, hungry * 0.75));
+  const adjOf = { pcore: 2, ecore: 1, gpu: 2, npu: 1 };
+  const units = [];
+  let cells = 0;
+  for (const type of BLOCK_ORDER) for (let k = 0; k < (n[type] || 0); k++) {
+    units.push({ type, adj: (adjOf[type] || 0) * feed, valid: true });
+    cells += BLOCKS[type].w * BLOCKS[type].h;
   }
-  const area = W * H * CELL_MM2;
-  const usedCells = d.blocks.reduce((a, b) => a + b.w * b.h, 0);
-  const fill = usedCells / (W * H);
-  const has = t => units.some(u => u.type === t);
-  const hasLive = t => units.some(u => u.type === t && u.valid);
-  if (!hasLive('io')) issues.push({ err: true, text: has('io') ? 'Memory controllers must touch the die edge.' : 'Add at least one memory controller (IO) on the die edge.' });
-  if (!has('pcore') && !has('ecore')) issues.push({ err: true, text: 'Add at least one CPU core.' });
-  if (!has('gpu') && d.gpuEra) issues.push({ err: false, text: 'No GPU: smartphone UIs and games will crawl.' });
-  if (has('modem') && !hasLive('modem')) issues.push({ err: false, text: 'Modem is not on the die edge – it will not work.' });
-  if (!has('modem') && d.modemEra) issues.push({ err: false, text: 'No integrated baseband: phones using this chip need a separate baseband chip (+cost, +power).' });
-  if (!has('dsp') && !has('modem') && d.dspEra) issues.push({ err: false, text: 'No DSP: digital phones using this chip need a separate DSP chip.' });
-  if (!has('isp') && d.camEra) issues.push({ err: false, text: 'No ISP: camera phones using this chip get poor photos.' });
-  if (fill < 0.7 && d.blocks.length) issues.push({ err: false, text: `${Math.round((1 - fill) * 100)}% of the die is empty – you pay for that silicon. Shrink the die.` });
-  if (hotT > 90) issues.push({ err: false, text: `Hotspot ${Math.round(hotT)}°C: the chip will throttle. Spread hot blocks apart or lower the clock.` });
-  const core = evalChipCore({ nm: d.nm, arch: d.arch, clock: d.clock, area, units, hotT, modemGen: d.modemGen, fill, b64: d.b64, b3d: d.b3d, brt: d.brt, dvfs: d.dvfs });
-  return Object.assign(core, { heat, issues, ok: !issues.some(i => i.err), fill, units });
+  const area = Math.max(4, Math.round(cells * CELL_MM2 * 1.25));
+  // hotspot: the hottest block type dominates, the die average adds to it
+  let pTot = 0, pHot = 0;
+  const dv = cfg.dvfs ? 0.85 : 1;
+  for (const u of units) {
+    const pw = blockPower(u.type, node, clock) * dv;
+    pTot += pw; pHot = Math.max(pHot, pw / (BLOCKS[u.type].w * BLOCKS[u.type].h));
+  }
+  const hotT = 30 + 150 * (0.55 * pHot + 0.45 * pTot / Math.max(1, cells));
+  const modemGen = n.modem ? bestNetGen(okFn) : 0;
+  const core = evalChipCore({ nm: cfg.nm, arch: archGenAt(okFn), clock, area, units, hotT, modemGen, fill: 0.85,
+    b64: !!cfg.b64 && okFn('chip_64'), b3d: !!cfg.b3d && okFn('chip_3d'), brt: !!cfg.brt && okFn('chip_rt'), dvfs: !!cfg.dvfs && okFn('chip_dvfs') });
+  const bin = binYield(clk);
+  if (area > RETICLE_MM2) issues.push({ err: true, text: `${area} mm² is bigger than a lithography reticle (${RETICLE_MM2} mm²) – it can't be printed.` });
+  else if (area > 350) issues.push({ err: false, text: `A ${area} mm² die: few come out of a wafer and most have a defect.` });
+  if (t >= 1998 && !n.modem) issues.push({ err: false, text: 'No integrated baseband: phones using this chip need a separate baseband chip (+cost, +power).' });
+  if (t >= 1991 && t < 1999 && !n.dsp && !n.modem) issues.push({ err: false, text: 'No DSP: digital phones using this chip need a separate DSP chip.' });
+  if (t >= 2003 && !n.isp) issues.push({ err: false, text: 'No ISP: camera phones using this chip get poor photos.' });
+  if (t >= 2006 && !n.gpu) issues.push({ err: false, text: 'No GPU: smartphone UIs and games will crawl.' });
+  if (hotT > 90) issues.push({ err: false, text: `Hotspot ${Math.round(hotT)}°C: the chip throttles. Fewer big cores, a lower clock or a newer node.` });
+  if (bin < 0.5) issues.push({ err: false, text: `Only ${Math.round(bin * 100)}% of dies reach ${clk.toFixed(2)}× the nominal clock – you pay for the rest.` });
+  return Object.assign(core, { issues, ok: !issues.some(i => i.err), fill: 0.85, units, cells, bin, clk });
+}
+// what one good, packaged chip costs (foundry or your own fab), including clock binning
+function processorCost(stats, t) {
+  const e = chipEconomics(stats.area, stats.nm, t), bin = stats.bin || 1;
+  return { e, bin, foundry: e.waferPrice / (e.good * bin) + e.pack + e.ip, own: e.ownWafer / (e.good * bin) + e.pack + e.ip, wafers: 1 / (e.good * bin) };
 }
 
 // ---- Off-the-shelf SoCs ------------------------------------------------------------
