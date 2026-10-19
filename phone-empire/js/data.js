@@ -96,6 +96,15 @@ const PAS = {
   gaas: { name: 'GaAs PA', tech: 'rf_pa_gaas', pwr: 0.72, cost: 1.15 },
   et:   { name: 'Envelope-tracking PA', tech: 'rf_pa_et', pwr: 0.56, cost: 1.3 },
 };
+// RF front-end: what sits between the antenna and the transceiver (gain → signal, pwr/vol multipliers, cost $ at launch)
+const RF_FE = {
+  basic: { name: 'Discrete front-end', tech: null, gain: 1.0, pwr: 1.0, vol: 1.0, cost: 0, desc: 'Separate filters, switches and amplifiers.' },
+  div:   { name: 'Receive diversity', tech: 'rf_div', gain: 1.04, pwr: 1.0, vol: 1.03, cost: 1.5, desc: 'A second receive antenna fills in the fades.' },
+  tuner: { name: 'Antenna tuners', tech: 'rf_tuner', gain: 1.08, pwr: 0.98, vol: 1.03, cost: 2.5, desc: 'Retunes the antenna on the fly when your hand detunes it.' },
+  fem:   { name: 'Integrated front-end modules', tech: 'rf_fem', gain: 1.09, pwr: 0.92, vol: 0.9, cost: 4, desc: 'Filters, switches and amplifiers packed into one module.' },
+  ai:    { name: 'AI antenna management', tech: 'rf_ai', gain: 1.12, pwr: 0.88, vol: 0.9, cost: 5, desc: 'Machine-learned antenna switching and beam steering.' },
+};
+const RF_FE_ORDER = ['basic', 'div', 'tuner', 'fem', 'ai'];
 // electronics volume shrinks with every integration step (cm³ multipliers)
 const INTEGRATION = [
   ['int_discrete', 1.0, 'Discrete transistors'], ['int_hybrid', 0.6, 'Thick-film hybrids'], ['int_lsi', 0.55, 'LSI logic'], ['int_vlsi', 0.5, 'VLSI chipsets'],
@@ -282,7 +291,7 @@ const DISP_EMIT = {
     desc: 'Super-twisted nematic: much better contrast on dot-matrix screens.' },
   ips:    { name: 'IPS liquid crystal', tech: 'disp_ips', matrices: ['asi', 'ltps'], trans: 1.2, contrast: 85, gamut: 0.95, pwr: 0.03, cost: 1.3, stack: 1.2, q: 0.95, life: 1,
     desc: 'In-plane switching: wide viewing angles and accurate color.' },
-  oled:   { name: 'AMOLED', tech: 'disp_oled', emissive: true, matrices: ['ltps', 'ltpo'], nits: 420, contrast: 1e5, gamut: 1.2, pwr: 0.55, cost: 2.2, stack: 0.9, q: 1.05, life: 0.8,
+  oled:   { name: 'AMOLED', tech: 'disp_oled', emissive: true, matrices: ['ltps', 'ltpo'], nits: 420, contrast: 1e5, gamut: 1.2, pwr: 0.55, cost: 1.9, stack: 0.9, q: 1.05, life: 0.8,
     desc: 'Self-emissive pixels: true blacks, thin and efficient on dark content.' },
   tandem: { name: 'Tandem OLED', tech: 'disp_tandem', emissive: true, matrices: ['ltpo'], nits: 800, contrast: 1e5, gamut: 1.25, pwr: 0.42, cost: 1.2, stack: 0.95, q: 1.12, life: 1.3,
     desc: 'Two stacked emitter layers: twice the brightness, longer life.' },
@@ -295,7 +304,7 @@ const DISP_MATRIX = {
   passive: { name: 'Passive matrix', tech: 'disp_passive', ppiMax: 140, cost: 1.0, contrast: 0.7, resp: 0.55, sizeMax: 2.8, desc: 'Rows and columns scanned in turn. Cheap; ghosts on motion.' },
   asi:     { name: 'a-Si TFT', tech: 'disp_asi', ppiMax: 330, cost: 1.6, contrast: 11, resp: 0.9, desc: 'A transistor per pixel (amorphous silicon). Sharp, fast, colorful.' },
   ltps:    { name: 'LTPS TFT', tech: 'disp_ltps', ppiMax: 650, cost: 2.1, contrast: 13, resp: 1.0, desc: 'Low-temperature polysilicon: tiny fast transistors for high PPI and OLED.' },
-  ltpo:    { name: 'LTPO TFT', tech: 'disp_ltpo', ppiMax: 650, cost: 2.5, contrast: 13, resp: 1.0, vrr: true, desc: 'LTPS + oxide: refresh drops to 1 Hz on still images to save power.' },
+  ltpo:    { name: 'LTPO TFT', tech: 'disp_ltpo', ppiMax: 650, cost: 2.3, contrast: 13, resp: 1.0, vrr: true, desc: 'LTPS + oxide: refresh drops to 1 Hz on still images to save power.' },
 };
 const DISP_MATRIX_ORDER = ['segment', 'passive', 'asi', 'ltps', 'ltpo'];
 const DISP_BL = {
@@ -314,9 +323,30 @@ const DISP_COVER = {
   glass:   { name: 'Soda-lime glass', tech: 'disp_glass', drop: 0.35, scratch: 0.6, cost: 0.6, stack: 0.9, q: 1.0 },
   alusil:  { name: 'Strengthened glass', tech: 'disp_alusil', drop: 0.62, scratch: 0.7, cost: 1.5, stack: 0.7, q: 1.04 },
   alusil2: { name: 'Toughened glass gen-2', tech: 'disp_alusil2', drop: 0.76, scratch: 0.75, cost: 2.0, stack: 0.6, q: 1.06 },
+  alusil3: { name: 'Toughened glass gen-3', tech: 'disp_alusil3', drop: 0.82, scratch: 0.78, cost: 2.6, stack: 0.55, q: 1.07 },
   ceramic: { name: 'Glass-ceramic', tech: 'disp_ceramic', drop: 0.9, scratch: 0.8, cost: 3.6, stack: 0.6, q: 1.08 },
+  ceramic2: { name: 'Glass-ceramic gen-2', tech: 'disp_ceramic2', drop: 0.95, scratch: 0.85, cost: 4.6, stack: 0.55, q: 1.10 },
+  sapphire: { name: 'Sapphire crystal', tech: 'disp_sapphire', drop: 0.5, scratch: 1.0, cost: 16, stack: 0.6, q: 1.09, desc: 'Nearly scratch-proof luxury crystal – but it shatters more easily and costs a fortune.' },
 };
-const DISP_COVER_ORDER = ['acrylic', 'glass', 'alusil', 'alusil2', 'ceramic'];
+const DISP_COVER_ORDER = ['acrylic', 'glass', 'alusil', 'alusil2', 'alusil3', 'ceramic', 'ceramic2', 'sapphire'];
+const DISP_COVER_STD = DISP_COVER_ORDER.filter(k => k !== 'sapphire');   // what suppliers fit by default
+// optional display features (q: DisplayMark multiplier, cost: $ at launch)
+const DISP_OPTS = {
+  oleo:  { name: 'Oleophobic coating', tech: 'disp_oleo', q: 1.01, cost: 0.3, desc: 'Fingerprints wipe straight off the glass.' },
+  calib: { name: 'Factory color calibration', tech: 'disp_calib', q: 1.02, cost: 0.8, desc: 'Every panel is measured and tuned to the color standard on the line.' },
+  aod:   { name: 'Always-on display', tech: 'disp_aod', q: 1.02, cost: 0.6, oled: true, desc: 'The clock and notifications glow on a black screen. OLED only; costs a little standby power.' },
+  hdr:   { name: 'HDR & 10-bit color', tech: 'disp_hdr', q: 1.04, cost: 3, desc: 'Brighter highlights and a billion colors – only shines above ~500 nits.' },
+  coe:   { name: 'Polarizer-free OLED', tech: 'disp_coe', q: 1.02, cost: 5, oled: true, desc: 'Color filters on the encapsulation replace the polarizer: +30% light, −20% power, thinner.' },
+  ar:    { name: 'Anti-reflective coating', tech: 'disp_ar', q: 1.05, cost: 6, desc: 'A nano-layer cuts reflections by 75%: readable in sunlight, deeper blacks.' },
+};
+const DISP_OPT_ORDER = ['oleo', 'calib', 'aod', 'hdr', 'coe', 'ar'];
+// how an OLED dims (LCDs dim their backlight without flicker)
+const DIMMING = {
+  pwm:   { name: 'Standard PWM', tech: null, q: 0.97, cost: 0, desc: 'Dimmed OLEDs flicker at ~240 Hz – some eyes notice.' },
+  dc:    { name: 'DC dimming', tech: 'disp_dc', q: 0.99, cost: 0.6, desc: 'Lowers the current instead of flickering; colors shift a little at very low brightness.' },
+  hfpwm: { name: 'High-frequency PWM', tech: 'disp_pwm', q: 1.0, cost: 1.4, desc: '2,000+ Hz dimming: no visible flicker.' },
+};
+const TOUCH_RATE = [{ hz: 60, tech: null }, { hz: 120, tech: 'disp_t120' }, { hz: 240, tech: 'disp_t240' }, { hz: 480, tech: 'disp_t480' }];
 const REFRESH = [{ hz: 60, tech: null }, { hz: 90, tech: 'disp_90' }, { hz: 120, tech: 'disp_120' }, { hz: 144, tech: 'disp_144' }];
 const DISP_SHAPE = {
   bezel:  { name: 'Standard bezels', tech: null, stb: 0, q: 1.0, cost: 1.0 },
@@ -369,13 +399,29 @@ const CAM_AF = {
   pdaf:  { name: 'Phase-detect AF', tech: 'cam_pdaf', q: 0.95, cost: 2.0 },
   laser: { name: 'Laser AF', tech: 'cam_laser', q: 0.97, cost: 2.6 },
   dpaf:  { name: 'Dual-pixel AF', tech: 'cam_dpaf', q: 1.0, cost: 2.4 },
+  apaf:  { name: 'All-pixel AF (2×2 on-chip lens)', tech: 'cam_apaf', q: 1.04, cost: 3.2 },
 };
-const CAM_AF_ORDER = ['fixed', 'vcm', 'pdaf', 'laser', 'dpaf'];
+const CAM_AF_ORDER = ['fixed', 'vcm', 'pdaf', 'laser', 'dpaf', 'apaf'];
 const CAM_OIS = {
   none:  { name: 'None', tech: null, stops: 0, cost: 0, z: 0 },
   lens:  { name: 'Optical (lens-shift)', tech: 'cam_ois', stops: 1.6, cost: 5, z: 0.4 },
   shift: { name: 'Sensor-shift', tech: 'cam_shift', stops: 2.3, cost: 7, z: 0.6 },
+  gimbal: { name: 'Micro-gimbal', tech: 'cam_gimbal', stops: 3.0, cost: 12, z: 1.1 },
 };
+const CAM_OIS_ORDER = ['none', 'lens', 'shift', 'gimbal'];
+// video recording modes: px = megapixels per frame (the sensor needs at least that many)
+const VIDEO = [{ name: 'VGA video', px: 0.3, tech: null }, { name: '720p HD', px: 0.92, tech: 'cam_v720' }, { name: '1080p Full HD', px: 2.1, tech: 'cam_v1080' },
+               { name: '4K UHD', px: 8.3, tech: 'cam_v4k' }, { name: '8K', px: 33, tech: 'cam_v8k' }];
+// optional camera hardware (pts: CameraMark points, cost: $ at launch, roles: which cameras can have it)
+const CAM_OPTS = {
+  coat:     { name: 'Anti-flare lens coating', tech: 'cam_coat', pts: 1.5, cost: 1.2, desc: 'Atomic-layer coatings stop flare and ghosting around lights.' },
+  macro:    { name: 'Close-focus macro', tech: 'cam_macro', pts: 1.5, cost: 1.0, roles: ['main', 'ultra'], af: true, desc: 'Focuses 2 cm away. Needs autofocus.' },
+  tof:      { name: '3D time-of-flight sensor', tech: 'cam_tof', pts: 3, cost: 4, power: 0.02, roles: ['main'], desc: 'Maps depth with infrared pulses: better portraits and AR.' },
+  varap:    { name: 'Variable aperture', tech: 'cam_varap', pts: 2, cost: 4.5, z: 0.3, roles: ['main'], desc: 'Mechanical blades switch between two f-stops: sharp in daylight, bright at night.' },
+  spectral: { name: 'Multispectral color sensor', tech: 'cam_spectral', pts: 1.2, cost: 1.6, roles: ['main'], desc: 'Measures the color of the light for true-to-life white balance.' },
+  cz:       { name: 'Continuous optical zoom', tech: 'cam_cz', pts: 0, zoomQ: 1.12, cost: 7, z: 0.5, roles: ['tele'], desc: 'Moving lens groups zoom smoothly between focal lengths.' },
+};
+const CAM_OPT_ORDER = ['coat', 'macro', 'tof', 'varap', 'spectral', 'cz'];
 const CAM_ROLES = {
   main:  { name: 'Main camera', focal: [22, 35], dflt: 26, tech: 'cam_cmos', weight: 1.0 },
   ultra: { name: 'Ultra-wide', focal: [12, 18], dflt: 14, tech: 'cam_multi', weight: 0.25 },
@@ -404,9 +450,18 @@ const BAT_FORMAT = {
   cyl:     { name: 'Cylindrical cells', tech: null, pack: 0.72, cost: 0.9, risk: 0.8, desc: 'Round cells in a pack: robust, but wasted corners.' },
   prism:   { name: 'Prismatic can', tech: 'bat_prism', pack: 0.86, cost: 1.0, risk: 1.0, desc: 'A flat aluminum can.' },
   pouch:   { name: 'Pouch', tech: 'bat_lipo', pack: 0.94, cost: 1.05, risk: 1.15, lithium: true, desc: 'Foil pouch fills every millimetre – but needs room to swell.' },
+  shaped:  { name: 'Shaped (L / split) cells', tech: 'bat_shaped', pack: 0.99, cost: 1.35, risk: 1.05, lithium: true, desc: 'L-shaped or split cells fill every corner around the board.' },
   stacked: { name: 'Stacked-electrode pouch', tech: 'bat_stack', pack: 0.97, cost: 1.2, risk: 1.0, lithium: true, desc: 'Stacked instead of wound electrodes: square corners, lower resistance.' },
 };
-const BAT_FORMAT_ORDER = ['cyl', 'prism', 'pouch', 'stacked'];
+const BAT_FORMAT_ORDER = ['cyl', 'prism', 'pouch', 'shaped', 'stacked'];
+// optional cell & charging features (cyc/risk/maxC: multipliers, cost: $ at launch)
+const BAT_OPTS = {
+  bms:     { name: 'Battery-health management', tech: 'bat_bms', cyc: 1.25, risk: 0.92, cost: 0.3, desc: 'Learns your routine and holds the charge at 80% until you need it.' },
+  tabs:    { name: 'Multi-tab electrodes', tech: 'bat_multitab', maxC: 1.35, cost: 0.8, desc: 'Current leaves each electrode through several tabs: lower resistance, faster charging.' },
+  thermal: { name: 'Graphene thermal layer', tech: 'bat_graphene', maxC: 1.2, risk: 0.9, cost: 1.2, desc: 'Pulls heat out of the cell so it can take a faster charge.' },
+  bypass:  { name: 'Bypass charging', tech: 'bat_bypass', cyc: 1.12, cost: 0.4, desc: 'Runs the phone straight from the charger while gaming – the cell stays cool.' },
+};
+const BAT_OPT_ORDER = ['bms', 'tabs', 'thermal', 'bypass'];
 // largest cell you can make (mAh at 3.8 V); bag phones ×6, tablets ×2.2
 const BAT_CAPS = [[null, 800], ['bat_c1', 1000], ['bat_c2', 1200], ['bat_c3', 1500], ['bat_c4', 1800], ['bat_c5', 2200], ['bat_c6', 2800],
                   ['bat_c7', 3400], ['bat_c8', 4000], ['bat_c9', 4600], ['bat_c10', 5200], ['bat_c11', 6000], ['bat_c12', 7500]];
@@ -463,6 +518,15 @@ const STORAGE_IF = {
 };
 const STORAGE_IF_ORDER = ['par', 'emmc', 'emmc5', 'ufs2', 'ufs3', 'ufs4', 'ufs5'];
 const STACK_CAPS = [[null, 1], ['mem_stack2', 2], ['mem_stack4', 4], ['mem_stack8', 8], ['mem_stack16', 16]];
+// optional memory features (vol/pwr/speed: multipliers, cost: $ at launch; flash: needs flash dies)
+const MEM_OPTS = {
+  pop: { name: 'Package-on-package', tech: 'mem_pop', vol: 0.65, pwr: 0.95, cost: 0.6, desc: 'RAM stacked right on top of the processor: saves board space.' },
+  dpd: { name: 'Deep power-down modes', tech: 'mem_dpd', pwr: 0.85, cost: 0.15, desc: 'Idle DRAM banks switch off completely.' },
+  mcp: { name: 'Combo package (uMCP)', tech: 'mem_mcp', vol: 0.8, speed: 0.9, cost: -0.4, flash: true, desc: 'RAM and flash share one package: cheap and compact, a little slower.' },
+  wb:  { name: 'SLC write cache', tech: 'mem_wb', speed: 1.35, cost: 0.3, flash: true, desc: 'Part of the flash runs as fast 1-bit cells to soak up writes.' },
+  hpb: { name: 'Host performance booster', tech: 'mem_hpb', speed: 1.15, cost: 0.2, flash: true, desc: 'The phone caches the flash map in RAM: faster random reads.' },
+};
+const MEM_OPT_ORDER = ['pop', 'dpd', 'mcp', 'wb', 'hpb'];
 const fmtMB = mb => {
   if (mb <= 0) return 'none';
   if (mb >= 1048576) return +(mb / 1048576).toFixed(1) + ' TB';
@@ -631,6 +695,10 @@ T('rf_mimo2', 'network', '2×2 MIMO', 2008.5, 1.2, 70, 'Two antennas send two da
 T('net_tdscdma', 'network', 'TD-SCDMA', 2009.1, 1.6, 90, 'China\'s home-grown 3G standard.', ['net_gsm']);
 T('net_lte', 'network', 'LTE (4G)', 2009.95, 3, 150, 'All-IP broadband radio. Both GSM and CDMA carriers converge on it.', ['rf_mimo2'], { reqAny: ['net_hspa', 'net_evdo', 'net_wimax'], lead: 3 });
 T('rf_frame', 'network', 'Frame-integrated antennas', 2010.5, 1.2, 70, 'Split a metal frame into tuned antenna bands – metal bodies without dead spots.', ['rf_internal']);
+T('rf_div', 'network', 'Receive diversity', 2005.5, 0.8, 45, 'A second receive antenna fills in signal fades: better reception.', ['rf_internal']);
+T('rf_tuner', 'network', 'Antenna aperture tuners', 2012.8, 0.9, 50, 'The antenna retunes itself when a hand detunes it.', ['rf_div']);
+T('rf_fem', 'network', 'Integrated RF front-end modules', 2016, 1, 60, 'Filters, switches and amplifiers in one module: less power, less space.', ['rf_tuner']);
+T('rf_ai', 'network', 'AI antenna management', 2024, 1, 60, 'Machine-learned antenna switching and beam steering.', ['rf_fem']);
 T('rf_bands10', 'network', '10-band radios', 2011, 0.8, 50, 'LTE bands differ in every country.', ['rf_bands6']);
 T('rf_ca2', 'network', 'Carrier aggregation (2 carriers)', 2013.5, 1.2, 70, 'LTE-Advanced: bond two channels for double speed.', ['net_lte']);
 T('rf_pa_et', 'network', 'Envelope-tracking PAs', 2013.5, 1, 60, 'The PA supply follows the signal: −22% radio power.', ['rf_pa_gaas']);
@@ -670,6 +738,18 @@ T('disp_tab13', 'display', '13" tablet panels', 2015.8, 0.8, 50, 'Laptop-sized t
 T('disp_fullview', 'display', 'Slim-bezel 18:9 panels', 2017.3, 1.5, 80, 'Bezels shrink and screens grow taller.', ['disp_ltps']);
 T('disp_notch', 'display', 'Notch cut-outs', 2017.7, 0.8, 50, 'Wrap the screen around the sensors.', ['disp_fullview']);
 T('disp_hdr', 'display', 'HDR & 10-bit color', 2018, 1, 60, 'Brighter highlights and a billion colors.', ['disp_oled']);
+T('disp_oleo', 'display', 'Oleophobic coating', 2009.5, 0.5, 30, 'Fingerprints wipe straight off the glass.', ['disp_capacitive']);
+T('disp_calib', 'display', 'Factory color calibration', 2012, 0.6, 35, 'Every panel measured and tuned on the line.', ['disp_ips']);
+T('disp_t120', 'display', '120 Hz touch sampling', 2014.5, 0.6, 35, 'The touch layer reports twice per frame: snappier response.', ['disp_capacitive']);
+T('disp_sapphire', 'display', 'Sapphire cover crystal', 2015, 1, 60, 'Lab-grown sapphire: almost impossible to scratch, expensive and brittle.', ['disp_alusil']);
+T('disp_aod', 'display', 'Always-on display', 2016.2, 0.8, 45, 'Clock and notifications glow on a black OLED screen.', ['disp_oled']);
+T('disp_alusil3', 'display', 'Toughened glass gen-3', 2016.5, 0.8, 50, 'Deeper ion exchange: survives drops from shoulder height.', ['disp_alusil2']);
+T('disp_t240', 'display', '240 Hz touch sampling', 2018.5, 0.6, 35, 'Gaming-grade touch response.', ['disp_t120']);
+T('disp_dc', 'display', 'DC dimming', 2019.4, 0.6, 35, 'Dim OLEDs by lowering the current instead of flickering.', ['disp_oled']);
+T('disp_t480', 'display', '480 Hz touch sampling', 2020.6, 0.6, 35, 'Touch that feels instant.', ['disp_t240']);
+T('disp_coe', 'display', 'Polarizer-free OLED', 2021.3, 1.2, 70, 'Color filters on the encapsulation: +30% light, −20% power.', ['disp_oled']);
+T('disp_ceramic2', 'display', 'Glass-ceramic gen-2', 2023.8, 1, 60, 'Tougher nano-crystal cover glass.', ['disp_ceramic']);
+T('disp_ar', 'display', 'Anti-reflective cover glass', 2023.9, 1.1, 60, 'A nano-layer cuts reflections by 75%.', ['disp_ceramic']);
 T('disp_hbm', 'display', 'High-brightness mode', 2019, 0.8, 50, 'Drive the panel harder outdoors (drive up to 140%).', ['disp_oled']);
 T('disp_punch', 'display', 'Punch-hole cameras', 2019.2, 1, 60, 'A tiny hole in the panel for the selfie camera.', ['disp_notch', 'disp_oled']);
 T('disp_90', 'display', '90 Hz refresh', 2019.4, 1, 50, 'Smoother scrolling.', ['disp_ltps']);
@@ -743,6 +823,18 @@ T('cam_f12', 'camera', '1-inch sensors', 2022.5, 0.8, 45, 'Compact-camera-sized 
 T('cam_mp13', 'camera', '200 MP sensors', 2022.5, 0.8, 50, 'More pixels than anyone needs.', ['cam_mp12']);
 T('ap_14', 'camera', 'f/1.4 apertures', 2022.5, 0.7, 40, 'Fast as a DSLR prime.', ['ap_16', 'lens_7']);
 T('cam_2layer', 'camera', '2-layer transistor pixels', 2023.5, 1.5, 80, 'Double the full-well: huge dynamic range.', ['cam_quad']);
+T('cam_v720', 'camera', '720p HD video', 2009, 0.6, 35, 'High-definition video recording.', ['cam_mp4']);
+T('cam_v1080', 'camera', '1080p video', 2011, 0.6, 35, 'Full HD video.', ['cam_v720']);
+T('cam_v4k', 'camera', '4K video', 2014, 0.8, 45, 'Ultra-HD video: needs an 8 MP+ sensor.', ['cam_v1080']);
+T('cam_coat', 'camera', 'Anti-flare lens coatings', 2016, 0.6, 35, 'Atomic-layer coatings stop flare and ghosting.', ['lens_5']);
+T('cam_varap', 'camera', 'Variable aperture', 2018.2, 0.9, 50, 'Two f-stops in one phone lens.', ['ap_18']);
+T('cam_tof', 'camera', '3D time-of-flight sensors', 2018.8, 0.9, 50, 'Infrared depth mapping for portraits and AR.', ['cam_laser']);
+T('cam_macro', 'camera', 'Close-focus macro', 2019.5, 0.6, 35, 'Focus 2 cm from the subject.', ['cam_af']);
+T('cam_v8k', 'camera', '8K video', 2020.2, 0.8, 45, '33 MP per frame: needs a huge sensor.', ['cam_v4k', 'cam_mp10']);
+T('cam_gimbal', 'camera', 'Micro-gimbal stabilization', 2020.5, 1, 60, 'The whole camera module floats on a gimbal: +3 stops.', ['cam_ois']);
+T('cam_apaf', 'camera', 'All-pixel autofocus', 2021, 0.8, 45, '2×2 on-chip lenses: every pixel focuses in every direction.', ['cam_dpaf']);
+T('cam_spectral', 'camera', 'Multispectral color sensors', 2021.5, 0.6, 35, 'True-to-life white balance.', ['cam_multi']);
+T('cam_cz', 'camera', 'Continuous optical zoom', 2023.2, 1.2, 70, 'Moving lens groups zoom smoothly.', ['cam_periscope']);
 
 // battery
 T('bat_nimh', 'battery', 'NiMH cells', 1990.5, 1, 60, '2.4× the energy of NiCd.');
@@ -772,6 +864,11 @@ T('bat_fc120', 'battery', '120 W hyper charging', 2022, 0.8, 50, 'Full in under 
 T('bat_d6', 'battery', 'Better electrodes VI', 2023, 0.5, 30, '+6% energy density.', ['bat_d5']);
 T('bat_sic', 'battery', 'Silicon-carbon anodes', 2023.5, 1.6, 90, 'Silicon stores 10× more lithium than graphite.', ['bat_hv']);
 T('bat_stack', 'battery', 'Stacked electrodes', 2023, 1, 60, 'Square corners and lower resistance.', ['bat_lipo']);
+T('bat_shaped', 'battery', 'Shaped cells', 2017.8, 0.8, 45, 'L-shaped and split cells fill the corners around the board.', ['bat_lipo']);
+T('bat_bms', 'battery', 'Battery-health management', 2019.8, 0.6, 35, 'Optimized charging: +25% cycle life.', ['bat_safety']);
+T('bat_multitab', 'battery', 'Multi-tab electrodes', 2020.3, 0.8, 45, 'Lower internal resistance: the cell accepts a faster charge.', ['bat_fc30']);
+T('bat_graphene', 'battery', 'Graphene thermal layers', 2021, 0.8, 45, 'Heat-spreading film lets cells charge faster and safer.', ['bat_fc30']);
+T('bat_bypass', 'battery', 'Bypass charging', 2023.3, 0.6, 35, 'Power the phone straight from the charger.', ['bat_bms']);
 T('bat_fc240', 'battery', '240 W charging', 2025, 0.8, 50, 'Ten minutes to full.', ['bat_fc120']);
 T('bat_solid', 'battery', 'Solid-state cells', 2032, 2.5, 140, 'Ceramic electrolyte: dense and non-flammable.', ['bat_sic']);
 ladder(BAT_CAPS, BAT_CAP_YEARS, 'battery', v => `${v.toLocaleString('en-US')} mAh cells`, 0.45, 35, v => `Cells up to ${v.toLocaleString('en-US')} mAh (bag phones ×6, tablets ×2.2).`);
@@ -810,6 +907,11 @@ T('fl_qlc', 'memory', 'QLC flash', 2019.5, 0.7, 40, 'Four bits per cell.', ['fl_
 T('if_ufs3', 'memory', 'UFS 3 storage', 2019.2, 0.8, 45, 'Twice as fast.', ['if_ufs2']);
 T('if_ufs4', 'memory', 'UFS 4 storage', 2022.8, 0.8, 45, 'Twice as fast again.', ['if_ufs3']);
 T('if_ufs5', 'memory', 'UFS 5 storage', 2027, 0.8, 45, 'Next-gen storage.', ['if_ufs4']);
+T('mem_pop', 'memory', 'Package-on-package', 2007.5, 0.7, 40, 'RAM stacked on top of the processor.', ['mem_stack2']);
+T('mem_dpd', 'memory', 'Deep power-down DRAM', 2011, 0.5, 30, 'Idle banks switch off: −15% memory power.', ['mem_lp1']);
+T('mem_mcp', 'memory', 'Combo memory packages (uMCP)', 2014.5, 0.6, 35, 'RAM and flash in one cheap package.', ['if_emmc5']);
+T('mem_wb', 'memory', 'SLC write cache', 2019.2, 0.6, 35, 'Fast 1-bit cache zone in the flash.', ['if_ufs2']);
+T('mem_hpb', 'memory', 'Host performance booster', 2020.5, 0.6, 35, 'Flash map cached in RAM: faster reads.', ['if_ufs3']);
 T('feat_sd', 'memory', 'Memory card slot', 2005, 0.5, 30, 'Expandable storage with microSD.', ['fl_7']);
 
 // chip design
@@ -1086,14 +1188,24 @@ const EVENTS = [
   { start: 1973.8, end: 1974.6, title: 'Oil crisis', desc: 'Fuel rationing and a recession: car-phone demand −15%, investors cautious.', fx: { demand: 0.85, funding: 0.7 } },
   { start: 1980.0, end: 1980.9, title: 'Recession', desc: 'Double-digit interest rates: demand −10%.', fx: { demand: 0.9, funding: 0.8 } },
   { start: 1987.8, end: 1988.4, title: 'Black Monday', desc: 'Stock markets crash: funding rounds are much harder.', fx: { funding: 0.6 } },
+  { start: 1988.1, end: 1989.2, title: 'DRAM shortage', desc: 'Chip trade quotas leave the world short of memory: DRAM prices +60%.', fx: { memory: 1.6 } },
   { start: 1990.6, end: 1991.4, title: 'Early-90s recession', desc: 'Demand −8%.', fx: { demand: 0.92 } },
+  { start: 1993.5, end: 1994.2, title: 'Epoxy resin plant explosion', desc: 'The main supplier of chip-packaging resin burns down: memory +30%, chips +10%.', fx: { memory: 1.3, soc: 1.1 } },
   { start: 1997.5, end: 1998.6, title: 'Asian financial crisis', desc: 'Demand −6%, investors pull back.', fx: { demand: 0.94, funding: 0.8 } },
+  { start: 1999.7, end: 2000.1, title: 'Taiwan earthquake', desc: 'Fabs in Hsinchu go dark for weeks: memory +25%, chips +10%.', fx: { memory: 1.25, soc: 1.1 } },
+  { start: 2000.1, end: 2001.0, title: 'Tantalum capacitor shortage', desc: 'Every phone needs tantalum capacitors and there aren\'t enough: radio modules +18%, chips +8%, cameras +8%.', fx: { radio: 1.18, soc: 1.08, camera: 1.08 } },
   { start: 2000.25, end: 2002.0, title: 'Dot-com crash', desc: 'Tech stocks collapse. Funding rounds are harder to win.', fx: { funding: 0.6 } },
+  { start: 2007.3, end: 2008.1, title: 'LCD panel shortage', desc: 'Flat-screen TVs swallow the panel fabs\' output: displays +12%.', fx: { display: 1.12 } },
   { start: 2008.70, end: 2009.60, title: 'Global financial crisis', desc: 'Consumers delay purchases: demand −12%. Investors pull back.', fx: { demand: 0.88, funding: 0.6 } },
-  { start: 2011.20, end: 2011.55, title: 'Earthquake hits component suppliers', desc: 'Display and memory prices +20%.', fx: { display: 1.2, memory: 1.2 } },
-  { start: 2017.40, end: 2018.60, title: 'DRAM price surge', desc: 'Memory prices +40% as data centers hoard DRAM.', fx: { memory: 1.4 } },
+  { start: 2009.90, end: 2010.70, title: 'OLED panel shortage', desc: 'Smartphone demand outruns the few AMOLED fabs: displays +15%.', fx: { display: 1.15 } },
+  { start: 2011.20, end: 2011.80, title: 'Earthquake hits component suppliers', desc: 'Japanese wafer, battery-material and panel plants stop: displays and memory +20%, batteries +10%.', fx: { display: 1.2, memory: 1.2, battery: 1.1 } },
+  { start: 2011.80, end: 2012.60, title: 'Thailand floods', desc: 'Factories under water: storage +15%, camera modules +10%.', fx: { memory: 1.15, camera: 1.1 } },
+  { start: 2016.30, end: 2016.90, title: 'Image-sensor fab earthquake', desc: 'The biggest camera-sensor fab is damaged: camera modules +20%.', fx: { camera: 1.2 } },
+  { start: 2017.00, end: 2018.80, title: 'DRAM & NAND price surge', desc: 'Data centers hoard memory: memory prices +45%.', fx: { memory: 1.45 } },
+  { start: 2019.50, end: 2019.95, title: 'Export controls on fab chemicals', desc: 'Photoresist and etching-gas shipments are restricted: memory +12%, displays +8%.', fx: { memory: 1.12, display: 1.08 } },
   { start: 2020.20, end: 2020.75, title: 'Global pandemic', desc: 'Stores closed worldwide: demand −18%.', fx: { demand: 0.82 } },
-  { start: 2020.75, end: 2022.30, title: 'Global chip shortage', desc: 'Foundry wafers +25%, off-the-shelf chips +20%.', fx: { wafer: 1.25, soc: 1.2 } },
+  { start: 2020.75, end: 2022.30, title: 'Global chip shortage', desc: 'Foundry wafers +25%, off-the-shelf chips +20%, display drivers +15%, RF chips +12%, image sensors +8%.', fx: { wafer: 1.25, soc: 1.2, display: 1.15, radio: 1.12, camera: 1.08 } },
+  { start: 2021.90, end: 2023.20, title: 'Lithium price spike', desc: 'Electric cars buy up lithium: battery cells +35%.', fx: { battery: 1.35 } },
   { start: 2025.50, end: 2026.30, title: 'AI data-center memory crunch', desc: 'Memory prices +35%.', fx: { memory: 1.35 } },
 ];
 
