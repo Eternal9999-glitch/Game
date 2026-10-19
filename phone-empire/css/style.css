@@ -297,20 +297,25 @@ canvas.chart { width: 100%; height: 200px; display: block; }
 .tree-cat { margin-bottom: 18px; }
 .tree-cat summary { cursor: pointer; font-weight: 800; font-size: 15px; padding: 4px 0 8px; list-style: none; }
 .tree-cat summary::-webkit-details-marker { display: none; }
+/* narrower screens: the stats go under the 3D stage, so only the part rail and the option list stay pinned
+   (a pinned stage would cover the stats as the page scrolls) */
 @media (max-width: 1400px) {
-  .pl-body { grid-template-columns: 84px minmax(290px, 320px) minmax(280px, 1fr); }
-  .pl-stats { grid-column: 1 / 4; max-height: none; position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
+  .pl-body { grid-template-columns: 84px minmax(290px, 320px) minmax(280px, 1fr); grid-template-rows: auto 1fr; }
+  .pl-cats, .pl-opts { grid-row: 1 / 3; }
+  .pl-stage { grid-column: 3; grid-row: 1; position: static; }
+  .pl-stats { grid-column: 3; grid-row: 2; max-height: none; position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-items: start; }
 }
 @media (max-width: 1400px) {
   .pl-head .row { flex-wrap: wrap; }
 }
 @media (max-width: 900px) {
-  .pl-body { grid-template-columns: 1fr; }
+  .pl-body { grid-template-columns: 1fr; grid-template-rows: none; }
+  .pl-cats, .pl-opts, .pl-stage, .pl-stats { grid-column: 1; grid-row: auto; }
   .pl-cats { order: -2; } .pl-stage { order: -1; }
   .pl-cats { flex-direction: row; overflow-x: auto; position: static; }
   .pl-cats button { min-width: 72px; }
   .pl-opts, .pl-stage { position: static; max-height: none; }
-  .pl-stats { grid-column: 1; display: flex; }
+  .pl-stats { display: flex; }
   .stage3d { height: 340px; }
   .style-pick { grid-template-columns: 1fr; }
   .pl-foot { position: static; }

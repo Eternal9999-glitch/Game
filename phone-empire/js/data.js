@@ -37,9 +37,9 @@ const REGION_ORDER = ['na', 'eu', 'ea', 'cn', 'rw'];
 // also support (fallback). cost/pwr/vol: radio cost ($ at its launch), talk power (W), electronics
 // volume factor. niche: rivals skip it.
 const NET_STDS = {
-  imts:   { name: 'IMTS mobile radio-telephone', short: '0G', gen: 0, peak: 0, tech: 'net_imts', cost: 1100, pwr: 9.0, vol: 1.0, vehicle: true },
-  amps:   { name: 'AMPS analog cellular', short: '1G AMPS', gen: 1, peak: 0, tech: 'net_amps', cost: 900, pwr: 1.25, vol: 0.62 },
-  nmt:    { name: 'NMT / TACS analog cellular', short: '1G NMT', gen: 1, peak: 0, tech: 'net_nmt', cost: 900, pwr: 1.25, vol: 0.62 },
+  imts:   { name: 'IMTS mobile radio-telephone', short: '0G', gen: 0, peak: 0, tech: 'net_imts', cost: 260, pwr: 9.0, vol: 1.0, vehicle: true },
+  amps:   { name: 'AMPS analog cellular', short: '1G AMPS', gen: 1, peak: 0, tech: 'net_amps', cost: 250, pwr: 1.25, vol: 0.62 },
+  nmt:    { name: 'NMT / TACS analog cellular', short: '1G NMT', gen: 1, peak: 0, tech: 'net_nmt', cost: 250, pwr: 1.25, vol: 0.62 },
   gsm:    { name: 'GSM', short: '2G GSM', gen: 2, peak: 0.0096, tech: 'net_gsm', cost: 160, pwr: 0.42, vol: 0.46 },
   tdma:   { name: 'D-AMPS / PDC (TDMA)', short: '2G TDMA', gen: 2, peak: 0.0096, tech: 'net_tdma', cost: 150, pwr: 0.42, vol: 0.46 },
   cdma:   { name: 'cdmaOne (IS-95)', short: '2G CDMA', gen: 2, peak: 0.0144, tech: 'net_cdma', cost: 180, pwr: 0.36, vol: 0.46 },
@@ -171,8 +171,8 @@ const ARCH_YEARS = [1971, 1976, 1979, 1982, 1985, 1988, 1991, 1994, 1996.5, 1999
 const CATS = {
   phone: {
     name: 'Phone', icon: '📱', devCost: 200e3,
-    labor: [[1973, 220], [1980, 160], [1985, 100], [1990, 45], [1995, 20], [2002, 13], [2010, 11], [2040, 11]],
-    misc:  [[1973, 300], [1980, 240], [1985, 150], [1990, 70], [1995, 32], [2000, 24], [2006, 19], [2010, 16], [2040, 16]],
+    labor: [[1973, 60], [1980, 50], [1985, 38], [1990, 26], [1995, 17], [2002, 13], [2010, 11], [2040, 11]],
+    misc:  [[1973, 80], [1980, 70], [1985, 55], [1990, 40], [1995, 28], [2000, 22], [2006, 19], [2010, 16], [2040, 16]],
   },
   tablet: {
     name: 'Tablet', icon: '📟', devCost: 250e3,
@@ -183,11 +183,11 @@ const CATS = {
 // geometry (mm): kp = keypad (w × h), fore/chin = space above/below the screen, side = side bezel,
 // maxT = thickest a body gets before it grows taller instead, minT = thinnest it can be.
 const FORMS = {
-  car: { name: 'Car phone', icon: '🚗', tech: null, kp: 'num', handset: true, cost: 260, labor: 30,
+  car: { name: 'Car phone', icon: '🚗', tech: null, kp: 'num', handset: true, cost: 60, labor: 8,
     geo: { minW: 56, fore: 34, chin: 30, side: 6, maxT: 46, minT: 38, kpW: 46, kpH: 66 },
     appeal: [[1973, 1.0], [1983, 0.9], [1987, 0.62], [1991, 0.32], [1996, 0.12], [2002, 0.03], [2040, 0.01]],
     desc: 'A handset in the car, wired to a radio transceiver in the trunk. Runs on the car battery.' },
-  bag: { name: 'Bag phone', icon: '👜', tech: 'form_bag', kp: 'num', handset: true, cost: 70, labor: 12,
+  bag: { name: 'Bag phone', icon: '👜', tech: 'form_bag', kp: 'num', handset: true, cost: 30, labor: 5,
     geo: { minW: 54, fore: 30, chin: 28, side: 6, maxT: 42, minT: 34, kpW: 46, kpH: 62 },
     appeal: [[1984.5, 1.0], [1988, 1.0], [1992, 0.55], [1996, 0.2], [2002, 0.03], [2040, 0.01]],
     desc: 'A transportable: handset plus a shoulder bag holding the radio and a big battery.' },
@@ -241,7 +241,7 @@ const SEG_INFO = {
 };
 // what a typical buyer in each segment spends
 const SEG_BUDGET = {
-  phone:  [[1973, [1600, 2600, 3600, 5000]], [1983, [1600, 2700, 3995, 5500]], [1987, [900, 1600, 2600, 3800]], [1990, [450, 850, 1400, 2200]],
+  phone:  [[1973, [800, 1250, 1800, 2600]], [1983, [800, 1300, 2000, 2900]], [1987, [650, 1100, 1800, 2700]], [1990, [450, 850, 1400, 2200]],
            [1993, [250, 500, 900, 1400]], [1996, [150, 300, 550, 900]], [2000, [110, 230, 420, 720]], [2005, [70, 170, 350, 600]], [2008, [60, 190, 450, 700]],
            [2012, [100, 300, 600, 900]], [2016, [140, 360, 720, 1080]], [2020, [190, 420, 800, 1200]], [2026, [210, 450, 850, 1300]]],
   tablet: [[1973, [150, 330, 600, 950]], [2014, [170, 360, 680, 1050]], [2020, [200, 420, 800, 1200]], [2026, [220, 450, 850, 1300]]],
