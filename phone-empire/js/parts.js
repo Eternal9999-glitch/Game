@@ -40,11 +40,115 @@ const earlyMul = (since, t) => (t < since ? 1 + (since - t) * 0.3 : 1);
 const techMarket = id => (id ? TECH[id].market : 1900);
 const econ = t => interp(ECON, t);
 
+// World events ease in and out over EVENT_EASE years instead of switching on and off.
+const EVENT_EASE = 2 / 12;
 function activeEvents(t) { return EVENTS.filter(e => t >= e.start && t < e.end); }
+function eventWeight(e, t) {
+  if (t <= e.start || t >= e.end) return 0;
+  const s = x => { x = Math.min(1, x); return x * x * (3 - 2 * x); };
+  return s((t - e.start) / EVENT_EASE) * s((e.end - t) / EVENT_EASE);
+}
 function eventMul(key, t) {
   let m = 1;
-  for (const e of activeEvents(t)) if (e.fx[key]) m *= e.fx[key];
+  for (const e of EVENTS) if (e.fx[key] && t > e.start && t < e.end) m *= 1 + (e.fx[key] - 1) * eventWeight(e, t);
   return m;
+}
+
+// ---- Price dynamics ----------------------------------------------------------------
+// Parts get cheaper along a learning curve (Wright's law): every doubling of all the handsets the
+// industry has ever built takes a fixed share off the price. Volume doubles fast in the 1980s–90s
+// boom and slowly once the market matures, so prices fall quickly early and gently later. A new
+// technology also learns fast in its first few years. Shortages (EVENTS) push prices up, and the
+// same part can never get cheaper than MAX_DROP a year (guardCost).
+const LEARN_FROM = 1960;
+const _volLog2 = (() => {
+  const out = [];
+  let v = 3e5;                                            // radio-telephones built before 1973
+  for (let m = 0; m <= (2062 - LEARN_FROM) * 12; m++) {
+    out.push(Math.log2(v));
+    v += logInterp(MARKET_SIZE.phone, LEARN_FROM + m / 12);
+  }
+  return out;
+})();
+// doublings of cumulative industry volume (log2 of handsets built) at time t
+function volDoublings(t) {
+  const x = clamp((t - LEARN_FROM) * 12, 0, _volLog2.length - 1.001), i = Math.floor(x);
+  return lerp(_volLog2[i], _volLog2[i + 1], x - i);
+}
+// price multiplier for something that became industry standard at `since`. pr = share of the price
+// left after each doubling of industry volume; young = extra share a new technology sheds over its
+// first few years; floor = the price never falls below this share. Before `since` it costs more.
+const YOUNG_YEARS = 2.5;
+function learn(since, t, pr, young, floor) {
+  if (t <= since) return earlyMul(since, t);
+  const ind = Math.pow(pr, volDoublings(t) - volDoublings(since));
+  const y = (1 + young * Math.exp(-(t - since) / YOUNG_YEARS)) / (1 + young);
+  return floor + (1 - floor) * ind * y;
+}
+// Stat levels (pixel density, screen size, refresh, sensor size, charging watts, RF bands …) are priced
+// by how new they are: a level costs most the moment it becomes industry standard and its premium fades
+// as the industry learns to make it. levelYear interpolates when a value became standard between the
+// research ladder's steps, so the premium is smooth in both the value and time. The newest levels are
+// the priciest, and anything beyond what the industry makes (exclusive research) costs more still.
+const LEVELS = {
+  ppi: () => PPI_CAPS.map(([id, v]) => [id, v]),
+  size: () => DISP_SIZE_CAPS.map(([id, v]) => [id, v]),
+  tabSize: () => [[null, 7], ['form_tablet', 10.1], ['disp_tab13', 13]],
+  hz: () => REFRESH.map(r => [r.tech, r.hz]),
+  drive: () => [[null, 1], ['disp_hbm', 1.4]],
+  camArea: () => CAM_FORMATS.map((f, i) => [i ? CAM_FORMAT_TECH[i] : null, f.w * f.h]),
+  mp: () => CAM_MP.map((m, i) => [i ? CAM_MP_TECH[i] : null, m]),
+  lens: () => LENS_CAPS.map(([id, v]) => [id, v]),
+  light: () => APERTURES.map((a, i) => [APERTURE_TECH[i], 1 / (a * a)]),
+  stab: () => CAM_OIS_ORDER.map(k => [CAM_OIS[k].tech, 1 + CAM_OIS[k].stops]),
+  charge: () => CHARGE.map(c => [c.tech, c.w]),
+  bands: () => BAND_CAPS.map(([id, v]) => [id, v]),
+  mimo: () => MIMO.map(m => [m.tech, m.n]),
+  ca: () => CARRIER_AGG.map(c => [c.tech, c.n]),
+};
+const _levelPts = {};
+function levelPoints(name) {
+  if (!_levelPts[name]) {
+    // [year, value], ascending; the base level counts as four years older than the first step
+    const raw = LEVELS[name]().filter((x, i, a) => i === 0 || x[1] > a[i - 1][1]);
+    const pts = raw.map(([id, v]) => [id ? techMarket(id) : null, v]);
+    pts[0][0] = (pts.length > 1 ? pts[1][0] : 1980) - 4;
+    for (let i = 1; i < pts.length; i++) pts[i][0] = Math.max(pts[i][0], pts[i - 1][0] + 0.25);
+    _levelPts[name] = pts;
+  }
+  return _levelPts[name];
+}
+function levelYear(name, v) {
+  const pts = levelPoints(name);
+  if (!(v > pts[0][1])) return -1e4;
+  for (let i = 1; i < pts.length; i++) {
+    const [y0, v0] = pts[i - 1], [y1, v1] = pts[i];
+    if (v <= v1) return y0 + (y1 - y0) * Math.log(v / v0) / Math.log(v1 / v0);
+  }
+  if (pts.length < 2) return pts[0][0];
+  const [y0, v0] = pts[pts.length - 2], [y1, v1] = pts[pts.length - 1];
+  return y1 + (y1 - y0) * Math.log(v / v1) / Math.log(v1 / v0);     // beyond the last step: extrapolate
+}
+// premium for a stat level at time t: 1 + Y when it is brand new, fading with time constant K years;
+// before it is standard it costs more (up to +50% at two years early)
+function levelPrem(name, v, t, Y, K) {
+  const age = t - levelYear(name, v);
+  if (age >= 0) return 1 + Y * Math.exp(-age / K);
+  return (1 + Y) * (1 + 0.25 * Math.min(2, -age));
+}
+// No part may get cheaper than MAX_DROP a year for the same spec: the price at t is held up by what
+// the same spec cost in the previous three years while it was on the market (shortages and launch
+// premiums fade gradually instead of crashing).
+const MAX_DROP = { display: 0.28, camera: 0.28, battery: 0.28, memory: 0.35, radio: 0.28 };
+const GUARD_MONTHS = 36;
+function guardCost(kind, rawCost, t, since) {
+  const r = -Math.log(1 - MAX_DROP[kind]) / 12;
+  let c = rawCost(t);
+  for (let m = 1; m <= GUARD_MONTHS; m++) {
+    if (t - m / 12 < since) break;
+    c = Math.max(c, rawCost(t - m / 12) * Math.exp(-r * m));
+  }
+  return c;
 }
 
 // ---- Availability -----------------------------------------------------------
@@ -62,15 +166,27 @@ const bestOf = (order, table, okFn) => [...order].reverse().find(k => okFn(table
 
 // part stats are pure functions of (params, month): cache them
 const _partCache = new Map();
-function cached(kind, p, t, fn) {
-  const key = kind + Math.floor(t * 12) + JSON.stringify(p);
+function cachedKey(key, fn) {
   let v = _partCache.get(key);
-  if (!v) {
+  if (v === undefined) {
     v = fn();
-    if (_partCache.size > 4000) _partCache.clear();
+    if (_partCache.size > 40000) _partCache.clear();
     _partCache.set(key, v);
   }
   return v;
+}
+function cached(kind, p, t, fn) { return cachedKey(kind + Math.floor(t * 12) + JSON.stringify(p), fn); }
+// stats at t from rawFn(t), with the cost held up by what the same spec cost before (guardCost);
+// techs: what the spec needs – the guard only looks back to when all of it was on the market
+function priced(kind, guard, p, t, rawFn, techs) {
+  const js = JSON.stringify(p);
+  return cachedKey(kind + '$' + Math.floor(t * 12) + js, () => {
+    const raw = tt => cachedKey(kind + Math.floor(tt * 12) + js, () => rawFn(Math.floor(tt * 12) / 12 + 1 / 24));
+    const st = raw(t);
+    const since = Math.max(FIRST_YEAR, ...techs.map(id => (TECH[id] ? TECH[id].market : 0)));
+    const cost = guardCost(guard, tt => raw(tt).cost, t, since);
+    return cost > st.cost ? Object.assign({}, st, { cost, rawCost: st.cost }) : st;
+  });
 }
 
 // ============================================================================
@@ -90,6 +206,9 @@ function displayTechs(p) {
   if (p.color) out.push('disp_color');
   if (p.drive > 1.0001) out.push('disp_hbm');
   if (p.fold) out.push('disp_fold');
+  for (const k of DISP_OPT_ORDER) if (p[k]) out.push(DISP_OPTS[k].tech);
+  if (p.dim && DIMMING[p.dim]) out.push(DIMMING[p.dim].tech);
+  if (p.tsr > 60) out.push((TOUCH_RATE.find(r => r.hz === p.tsr) || TOUCH_RATE[0]).tech);
   return out.filter(Boolean);
 }
 // design-rule check: returns a list of problems ({err, text})
@@ -97,6 +216,7 @@ function displayRules(p) {
   const out = [];
   if (!p || p.emit === 'none') return out;
   const e = DISP_EMIT[p.emit], m = DISP_MATRIX[p.matrix];
+  const oled = e.emissive && p.emit !== 'led';
   if (!e.matrices.includes(p.matrix)) out.push({ err: true, text: `${e.name} cannot be driven by a ${m.name.toLowerCase()} backplane (use ${e.matrices.map(k => DISP_MATRIX[k].name).join(' or ')}).` });
   if (p.matrix === 'segment' && p.color) out.push({ err: true, text: 'Segment displays are monochrome.' });
   if (p.matrix === 'segment' && p.size > 2.2) out.push({ err: true, text: 'Segment displays only come in small strips (≤2.2").' });
@@ -108,72 +228,102 @@ function displayRules(p) {
   if (p.touch !== 'none' && p.matrix === 'segment') out.push({ err: true, text: 'A touch layer on a segment display is pointless.' });
   if (DISP_SHAPE[p.shape].oled && !e.emissive) out.push({ err: true, text: `${DISP_SHAPE[p.shape].name} needs an OLED panel (an LCD backlight cannot bend or have holes).` });
   if (p.fold && !['oled', 'tandem'].includes(p.emit)) out.push({ err: true, text: 'Only plastic OLED can fold.' });
+  for (const k of DISP_OPT_ORDER) if (p[k] && DISP_OPTS[k].oled && !oled) out.push({ err: true, text: `${DISP_OPTS[k].name} only works on an OLED panel.` });
+  if (p.tsr > 60 && p.touch === 'none') out.push({ err: true, text: 'Touch sampling needs a touch layer.' });
+  if (p.matrix === 'segment' && (p.hdr || p.calib)) out.push({ err: true, text: 'HDR and calibration need a pixel matrix.' });
   if (!e.emissive && p.bl === 'none' && p.matrix !== 'segment') out.push({ err: false, text: 'No backlight: unreadable in the dark.' });
   return out;
+}
+// what a display costs: panel (emitter × backplane × area × pixel density × refresh × brightness), drivers, layers and
+// coatings – each on its own learning curve – plus launch premiums for the newest stat levels
+const DISP_K = { scale: 0.42, ppiExp: 1.7, areaExp: 1.05, ppiY: 1.5, sizeY: 1.0 };
+function displayRaw(p, t) {
+  const e = DISP_EMIT[p.emit], m = DISP_MATRIX[p.matrix], bl = DISP_BL[p.bl], tc = DISP_TOUCH[p.touch], cv = DISP_COVER[p.cover];
+  const sh = DISP_SHAPE[p.shape] || DISP_SHAPE.bezel;
+  const g = displayGeom(p);
+  const seg = p.matrix === 'segment';
+  const oled = e.emissive && p.emit !== 'led';
+  const ppi = seg ? 0 : p.ppi;
+  const res = seg ? [Math.max(4, Math.floor(g.dw / 4.2)), 1] : [Math.max(8, Math.round(g.dw / 25.4 * ppi)), Math.max(8, Math.round(g.dh / 25.4 * ppi))];
+  const drive = p.drive || 1;
+  const coe = !!(p.coe && oled);
+  // light output
+  const grow = since => Math.min(2.2, 1 + 0.06 * Math.max(0, t - since));
+  let nits;
+  if (e.emissive) nits = e.nits * drive * grow(techMarket(e.tech)) * tc.trans * (coe ? 1.3 : 1);
+  else nits = bl.nits * grow(techMarket(bl.tech)) * e.trans * (p.color ? 0.45 : 1) * tc.trans * drive;
+  const contrast = (e.emissive ? e.contrast : e.contrast * m.contrast) * (p.ar ? 1.25 : 1);
+  const gamut = (p.color || e.emissive && p.emit !== 'led' ? e.gamut : 0) * (p.hdr && !seg ? 1.06 : 1);
+  // power (average, W)
+  const hzi = REFRESH.findIndex(r => r.hz === p.hz);
+  const hzF = m.vrr ? 0.78 : Math.pow((p.hz || 60) / 60, 0.7);
+  const pxF = seg ? 1 : Math.pow(Math.max(40, ppi) / 300, 0.25);
+  let power;
+  if (p.emit === 'led') power = g.area * e.pwr * 0.3;                 // digits are only lit while dialing
+  else if (e.emissive) power = g.area * 0.045 * (e.pwr / 0.55) * drive * hzF * pxF * Math.max(0.55, decl(0.04, techMarket(e.tech), t, 0.55)) * (coe ? 0.8 : 1);
+  else power = g.area * (0.004 + (bl.pwr ? bl.pwr * 0.22 * (nits / 230) / (p.color ? 0.45 : 1) * (p.color ? 0.6 : 1) : 0)) * hzF * pxF;
+  power += seg ? 0.002 : 0.004 + res[0] * res[1] * 2e-9;               // driver chip
+  if (p.aod && oled) power += m.vrr ? 0.004 : 0.012;
+  if (p.tsr > 60) power += 0.004 * Math.log2(p.tsr / 60);
+  // stack-up (mm) and weight
+  const layers = [['Cover', cv.name + (p.ar ? ' + AR coating' : ''), cv.stack], ['Touch', tc.name, tc.stack], ['Polarizer', '', p.emit === 'led' || coe ? 0 : 0.15],
+    [e.emissive ? 'Emitter' : 'Liquid crystal', e.name + (p.color && !e.emissive ? ' + color filter' : '') + (coe ? ' + on-cell color filter' : ''), e.stack], ['Backplane', m.name, seg ? 0.2 : 0.35],
+    ['Backlight', bl.name, e.emissive ? 0 : bl.stack]].filter(l => l[2] > 0);
+  const stack = layers.reduce((a, l) => a + l[2], 0);
+  const weight = (g.dw + 3) * (g.dh + 3) * stack * 1.5 / 1000;
+  // ---- cost ----
+  const since = techMarket(e.tech);
+  const per = DISP_K.scale * e.cost * learn(techMarket(e.tech), t, 0.85, 1.3, 0.16) * m.cost * learn(techMarket(m.tech), t, 0.93, 0.5, 0.5);
+  const pxCost = seg ? 1 : (0.5 + 0.5 * Math.pow(Math.max(60, ppi) / 250, DISP_K.ppiExp)) * (p.color && !e.emissive ? 1.2 : 1);
+  const hzCost = Math.pow((p.hz || 60) / 60, 0.45);
+  const driveCost = Math.pow(drive, 2.5);
+  const shapeCost = 1 + (sh.cost - 1) * (1 + 1.5 * learn(techMarket(sh.tech), t, 0.9, 1, 0));
+  const D = (0.006 + 0.015 * Math.exp(-Math.max(0, t - since) / 1.5)) * (seg ? 0.3 : Math.pow(Math.max(60, ppi) / 400, 1.8)) * (drive > 1 ? drive * drive : 1);
+  const yld = Math.exp(-g.area * D * (p.fold ? 2.5 : 1));
+  // the newest sizes, pixel densities, refresh rates and brightness levels cost extra (low-volume lines, rejects)
+  const prem = 1 + (seg ? 0 : levelPrem('ppi', ppi, t, DISP_K.ppiY, 1.5) - 1) + (p.fold ? 0 : levelPrem(p.size > 7.25 ? 'tabSize' : 'size', p.size, t, DISP_K.sizeY, 1.5) - 1)
+    + (p.hz > 60 ? levelPrem('hz', p.hz, t, 1.5, 1.5) - 1 : 0) + (drive > 1 ? levelPrem('drive', drive, t, 2.0, 1.5) - 1 : 0);
+  const panel = per * pxCost * hzCost * driveCost * shapeCost * Math.pow(0.6 + g.area, DISP_K.areaExp) * (p.fold ? 3 : 1) * prem;
+  const driver = seg ? 1.2 * learn(1975, t, 0.9, 0.5, 0.3) : 2.5 * learn(1988, t, 0.88, 0.5, 0.25) + res[0] * res[1] * 1e-6 * learn(2000, t, 0.8, 1, 0.05) * (p.hz > 60 ? p.hz / 60 : 1);
+  const a5 = Math.pow((0.5 + g.area) / 5, 0.6);
+  let extras = (e.emissive ? 0 : bl.cost * learn(techMarket(bl.tech), t, 0.9, 0.6, 0.3) * Math.pow(0.5 + g.area, 0.6))
+    + tc.cost * learn(techMarket(tc.tech), t, 0.88, 0.8, 0.25) * Math.pow((0.5 + g.area) / 5, 0.5)
+    + cv.cost * learn(techMarket(cv.tech), t, 0.92, 0.8, 0.4) * Math.pow((0.5 + g.area) / 5, 0.7);
+  for (const k of DISP_OPT_ORDER) if (p[k]) extras += DISP_OPTS[k].cost * learn(techMarket(DISP_OPTS[k].tech), t, 0.88, 1.2, 0.25) * a5;
+  if (oled && p.dim && DIMMING[p.dim]) extras += DIMMING[p.dim].cost * learn(techMarket(DIMMING[p.dim].tech), t, 0.88, 1, 0.3);
+  if (p.tsr > 60) extras += 0.4 * Math.log2(p.tsr / 60) * learn(techMarket((TOUCH_RATE.find(r => r.hz === p.tsr) || TOUCH_RATE[0]).tech), t, 0.88, 1, 0.3);
+  const cost = ((panel + driver) / yld + extras) * eventMul('display', t);
+  // quality: DisplayMark points
+  const sharp = seg ? 0.22 : Math.sqrt(Math.min(ppi, 600) / 300);
+  const info = seg ? res[0] / 30 : Math.min(1.25, Math.log2(res[0] * res[1]) / 20);
+  const light = nits > 0 ? Math.log2(1 + nits / 50) / Math.log2(11) : 0.25;
+  const contr = Math.min(1.4, Math.log10(Math.max(2, contrast)) / 3);
+  const tsr = p.tsr > 60 && p.touch !== 'none' ? 1 + 0.15 * Math.log2(p.tsr / 60) : 1;
+  const motion = Math.pow((p.hz || 60) / 60, 0.3) * m.resp * Math.pow(tsr, 0.5);
+  const raw = 0.28 * Math.min(1.45, sharp) + 0.12 * info + 0.18 * Math.min(1.3, light) + 0.12 * contr + 0.15 * gamut + 0.08 * motion + 0.07 * e.q;
+  let optQ = 1;
+  for (const k of DISP_OPT_ORDER) {
+    if (!p[k] || (DISP_OPTS[k].oled && !oled)) continue;
+    optQ *= k === 'hdr' ? 1 + (DISP_OPTS.hdr.q - 1) * clamp((nits - 250) / 350, 0, 1) : DISP_OPTS[k].q;
+  }
+  const dimQ = oled ? (DIMMING[p.dim] || DIMMING.pwm).q : 1;
+  const score = 100 * raw * tc.q * cv.q * sh.q * (p.fold ? 1.05 : 1) * optQ * dimQ;
+  return { w: g.dw, h: g.dh, area: g.area, ppi, res, nits, contrast, gamut, power, stack, weight, layers, cost, yield: yld, score, prem,
+    costParts: { panel: panel / yld, driver: driver / yld, extras, per, pxCost, hzCost, driveCost, shapeCost },
+    seg, emissive: !!e.emissive, color: !!(p.color || (e.emissive && p.emit !== 'led')), touch: p.touch !== 'none', hz: p.hz || 60,
+    drop: cv.drop, scratch: cv.scratch, rules: displayRules(p) };
 }
 function evalDisplay(p, t) {
   if (!p || p.emit === 'none') {
     return { none: true, w: 0, h: 0, area: 0, stack: 0, weight: 0, power: 0, cost: 0, nits: 0, contrast: 0, gamut: 0, ppi: 0, res: [0, 0], score: 0, rules: [] };
   }
-  return cached('d', p, t, () => {
-    const e = DISP_EMIT[p.emit], m = DISP_MATRIX[p.matrix], bl = DISP_BL[p.bl], tc = DISP_TOUCH[p.touch], cv = DISP_COVER[p.cover];
-    const sh = DISP_SHAPE[p.shape] || DISP_SHAPE.bezel;
-    const g = displayGeom(p);
-    const seg = p.matrix === 'segment';
-    const ppi = seg ? 0 : p.ppi;
-    const res = seg ? [Math.max(4, Math.floor(g.dw / 4.2)), 1] : [Math.max(8, Math.round(g.dw / 25.4 * ppi)), Math.max(8, Math.round(g.dh / 25.4 * ppi))];
-    const drive = p.drive || 1;
-    // light output
-    const grow = since => Math.min(2.2, 1 + 0.06 * Math.max(0, t - since));
-    let nits;
-    if (e.emissive) nits = e.nits * drive * grow(techMarket(e.tech)) * tc.trans;
-    else nits = bl.nits * grow(techMarket(bl.tech)) * e.trans * (p.color ? 0.45 : 1) * tc.trans * drive;
-    const contrast = e.emissive ? e.contrast : e.contrast * m.contrast;
-    const gamut = p.color || e.emissive && p.emit !== 'led' ? e.gamut : 0;
-    // power (average, W)
-    const hzi = REFRESH.findIndex(r => r.hz === p.hz);
-    const hzF = m.vrr ? 0.78 : Math.pow((p.hz || 60) / 60, 0.7);
-    const pxF = seg ? 1 : Math.pow(Math.max(40, ppi) / 300, 0.25);
-    let power;
-    if (p.emit === 'led') power = g.area * e.pwr * 0.3;                 // digits are only lit while dialing
-    else if (e.emissive) power = g.area * 0.045 * (e.pwr / 0.55) * drive * hzF * pxF * Math.max(0.55, decl(0.04, techMarket(e.tech), t, 0.55));
-    else power = g.area * (0.004 + (bl.pwr ? bl.pwr * 0.22 * (nits / 230) / (p.color ? 0.45 : 1) * (p.color ? 0.6 : 1) : 0)) * hzF * pxF;
-    power += seg ? 0.002 : 0.004 + res[0] * res[1] * 2e-9;               // driver chip
-    // stack-up (mm) and weight
-    const layers = [['Cover', cv.name, cv.stack], ['Touch', tc.name, tc.stack], ['Polarizer', '', p.emit === 'led' ? 0 : 0.15],
-      [e.emissive ? 'Emitter' : 'Liquid crystal', e.name + (p.color && !e.emissive ? ' + color filter' : ''), e.stack], ['Backplane', m.name, seg ? 0.2 : 0.35],
-      ['Backlight', bl.name, e.emissive ? 0 : bl.stack]].filter(l => l[2] > 0);
-    const stack = layers.reduce((a, l) => a + l[2], 0);
-    const weight = (g.dw + 3) * (g.dh + 3) * stack * 1.5 / 1000;
-    // cost: panel area × tech maturity × density, divided by yield
-    const since = Math.max(techMarket(e.tech), techMarket(m.tech));
-    const per = e.cost * decl(0.09, techMarket(e.tech), t, 0.22) * earlyMul(techMarket(e.tech), t) * m.cost * earlyMul(techMarket(m.tech), t);
-    const pxCost = seg ? 1 : Math.pow(Math.max(60, ppi) / 250, 0.5) * (p.color && !e.emissive ? 1.2 : 1);
-    const hzCost = 1 + 0.08 * Math.max(0, hzi);
-    const D = (0.006 + 0.02 * Math.exp(-Math.max(0, t - since) / 1.5)) * (seg ? 0.3 : Math.sqrt(Math.max(60, ppi) / 400));
-    const yld = Math.exp(-g.area * D * (p.fold ? 2.5 : 1));
-    const panel = per * pxCost * hzCost * sh.cost * Math.pow(0.6 + g.area, 0.9) * (p.fold ? 3 : 1);
-    const driver = seg ? 1.2 * decl(0.06, 1975, t, 0.3) : 2.5 * decl(0.08, 1988, t, 0.25) + res[0] * res[1] * 1e-6 * decl(0.15, 2000, t, 0.05);
-    const extras = (e.emissive ? 0 : bl.cost * decl(0.08, techMarket(bl.tech), t, 0.3) * Math.pow(0.5 + g.area, 0.6))
-      + tc.cost * decl(0.09, techMarket(tc.tech), t, 0.25) * Math.pow((0.5 + g.area) / 5, 0.5)
-      + cv.cost * decl(0.05, techMarket(cv.tech), t, 0.4) * Math.pow((0.5 + g.area) / 5, 0.7);
-    const cost = ((panel + driver) / yld + extras) * eventMul('display', t);
-    // quality: DisplayMark points
-    const sharp = seg ? 0.22 : Math.sqrt(Math.min(ppi, 600) / 300);
-    const info = seg ? res[0] / 30 : Math.min(1.25, Math.log2(res[0] * res[1]) / 20);
-    const light = nits > 0 ? Math.log2(1 + nits / 50) / Math.log2(11) : 0.25;
-    const contr = Math.min(1.4, Math.log10(Math.max(2, contrast)) / 3);
-    const motion = Math.pow((p.hz || 60) / 60, 0.3) * m.resp;
-    const raw = 0.28 * Math.min(1.45, sharp) + 0.12 * info + 0.18 * Math.min(1.3, light) + 0.12 * contr + 0.15 * gamut + 0.08 * motion + 0.07 * e.q;
-    const score = 100 * raw * tc.q * cv.q * sh.q * (p.fold ? 1.05 : 1);
-    return { w: g.dw, h: g.dh, area: g.area, ppi, res, nits, contrast, gamut, power, stack, weight, layers, cost, yield: yld, score,
-      seg, emissive: !!e.emissive, color: !!(p.color || (e.emissive && p.emit !== 'led')), touch: p.touch !== 'none', hz: p.hz || 60,
-      drop: cv.drop, scratch: cv.scratch, rules: displayRules(p) };
-  });
+  return priced('d', 'display', p, t, tt => displayRaw(p, tt), displayTechs(p));
 }
 // emitter + backplane combinations suppliers sell, oldest first
 const DISP_COMBOS = [['led', 'segment'], ['lcd', 'segment'], ['lcd', 'passive'], ['stn', 'passive'], ['lcd', 'asi'], ['ips', 'asi'], ['ips', 'ltps'],
                      ['oled', 'ltps'], ['oled', 'ltpo'], ['tandem', 'ltpo']];
+// lvl: 0 budget … 3 flagship. Flagships take the newest panel but stay a step short of the frontier
+// in sharpness, refresh and brightness – maxing every stat is a deliberate (and costly) choice.
 function stdDisplay(form, cat, t, ok, lvl) {
   const touchForm = !isKeypadForm(form);
   if (!ok('disp_led')) return { emit: 'none' };
@@ -181,20 +331,23 @@ function stdDisplay(form, cat, t, ok, lvl) {
   if (touchForm && combos.some(([, m]) => m !== 'segment')) combos = combos.filter(([, m]) => m !== 'segment');
   if (touchForm && combos.some(([, m]) => m !== 'segment' && m !== 'passive')) combos = combos.filter(([, m]) => m !== 'passive');
   if (!combos.length) return { emit: 'none' };
-  const [emit, matrix] = combos[Math.max(0, combos.length - 1 - [2, 1, 0, 0][lvl])];
+  // newly standard panels go to flagships first
+  let ci = combos.length - 1 - [2, 1, 0, 0][lvl];
+  while (ci > 0 && lvl < 3 && t - Math.max(techMarket(DISP_EMIT[combos[ci][0]].tech), techMarket(DISP_MATRIX[combos[ci][1]].tech)) < [5, 2.5, 1][lvl]) ci--;
+  const [emit, matrix] = combos[Math.max(0, ci)];
+  const em = DISP_EMIT[emit].emissive, oled = em && emit !== 'led';
   const color = matrix !== 'segment' && ok('disp_color') && (lvl >= 1 || ok('disp_asi'));
-  const bl = DISP_EMIT[emit].emissive ? 'none' : ok('disp_ledbl') ? 'led' : ok('disp_el') && matrix !== 'segment' ? 'el' : 'none';
+  const bl = em ? 'none' : ok('disp_ledbl') ? 'led' : ok('disp_el') && matrix !== 'segment' ? 'el' : 'none';
   const touch = touchForm ? (ok('disp_incell') && ['ltps', 'ltpo'].includes(matrix) && lvl >= 2 ? 'incell' : ok('disp_capacitive') && matrix !== 'passive' ? 'capacitive' : 'resistive') : 'none';
-  const cover = DISP_COVER_ORDER[Math.max(0, DISP_COVER_ORDER.indexOf(bestOf(DISP_COVER_ORDER, DISP_COVER, ok)) - (lvl === 0 ? 1 : 0))];
+  const cover = DISP_COVER_STD[Math.max(0, DISP_COVER_STD.indexOf(bestOf(DISP_COVER_STD, DISP_COVER, ok)) - [2, 1, 0, 0][lvl])];
   const ppiCap = ladderCap(PPI_CAPS, ok);
   const mMax = DISP_MATRIX[matrix].ppiMax || 0;
-  let ppi = Math.round(Math.min(ppiCap, mMax || 999) * [0.62, 0.8, 0.92, 1][lvl] / 10) * 10;
-  if (lvl === 3) ppi = Math.min(ppiCap, mMax || 999, cat === 'tablet' ? 300 : 460);
+  let ppi = Math.round(Math.min(ppiCap, mMax || 999) * [0.55, 0.68, 0.82, 0.9][lvl] / 10) * 10;
+  if (lvl === 3) ppi = Math.min(ppi, cat === 'tablet' ? 300 : 460);
   const hzOk = REFRESH.filter(r => ok(r.tech) && (r.hz === 60 || ['ltps', 'ltpo'].includes(matrix)));
-  const hz = hzOk[Math.max(0, hzOk.length - 1 - (3 - lvl))].hz;
+  const hz = hzOk[Math.max(0, hzOk.length - 1 - [3, 2, 1, 1][lvl])].hz;
   let shape = 'bezel';
   if (touchForm && lvl >= 1) {
-    const em = DISP_EMIT[emit].emissive;
     shape = ['punch', 'notch', 'slim'].find(k => ok(DISP_SHAPE[k].tech) && (!DISP_SHAPE[k].oled || em)) || 'bezel';
     if (shape === 'notch' && ok('disp_punch') && !em) shape = 'slim';
   }
@@ -205,7 +358,18 @@ function stdDisplay(form, cat, t, ok, lvl) {
   if (matrix === 'segment') size = Math.min(1.0 + 0.1 * lvl, 2.2);
   size = +clamp(size, 0.6, Math.min(sizeCap, matrix === 'passive' ? 2.8 : 99, form === 'fold' ? 8.1 : 99)).toFixed(1);
   if (form === 'fold') size = Math.max(size, 7.0);
-  return { emit, matrix, color, bl, touch, cover, size, aspect, ppi: matrix === 'segment' ? 0 : Math.max(60, ppi), hz, shape, drive: 1, fold: form === 'fold' };
+  const out = { emit, matrix, color, bl, touch, cover, size, aspect, ppi: matrix === 'segment' ? 0 : Math.max(60, ppi), hz, shape, drive: 1, fold: form === 'fold' };
+  // coatings and features suppliers fit once they are a couple of years old (flagships get them first)
+  const age = id => t - techMarket(DISP_OPTS[id].tech);
+  const keep = (k, minLvl) => ok(DISP_OPTS[k].tech) && lvl >= minLvl && age(k) >= [4, 2.5, 1, 0][lvl] && (!DISP_OPTS[k].oled || oled);
+  if (touchForm && keep('oleo', 0)) out.oleo = true;
+  if (matrix !== 'segment' && keep('calib', 1)) out.calib = true;
+  if (keep('aod', 1)) out.aod = true;
+  if (keep('hdr', 2)) out.hdr = true;
+  if (keep('coe', 3)) out.coe = true;
+  if (oled) out.dim = lvl >= 2 && ok('disp_pwm') ? 'hfpwm' : lvl >= 1 && ok('disp_dc') ? 'dc' : 'pwm';
+  if (touch !== 'none') { const rates = TOUCH_RATE.filter(r => ok(r.tech)); out.tsr = rates[Math.max(0, rates.length - 1 - [3, 2, 1, 1][lvl])].hz; }
+  return out;
 }
 
 // ============================================================================
@@ -232,7 +396,10 @@ function cameraRules(p, role) {
 }
 function evalCamera(p, t, role) {
   if (!p) return null;
-  return cached('c' + (role || ''), p, t, () => {
+  return priced('c' + (role || ''), 'camera', p, t, tt => cameraRaw(p, tt, role), cameraTechs(p, role));
+}
+function cameraRaw(p, t, role) {
+  return (() => {
     const f = CAM_FORMATS[p.fmt], s = CAM_SENSOR[p.sensor], af = CAM_AF[p.af], ois = CAM_OIS[p.ois];
     const A = f.w * f.h, diag = Math.hypot(f.w, f.h);
     const N = p.ap, el = p.lens, mp = p.mp;
@@ -252,8 +419,10 @@ function evalCamera(p, t, role) {
     if (role === 'tele') score *= 0.6 + 0.4 * Math.min(2.5, Math.log2(zoom) / 1.58);
     // cost
     const st = techMarket(s.tech);
-    const sensor = A * 0.55 * s.cost * decl(0.08, 2001, t, 0.1) * earlyMul(st, t) + mp * 0.45 * decl(0.18, 2001, t, 0.02);
-    const lens = el * 0.55 * decl(0.05, 2002, t, 0.4) * Math.pow(2.8 / N, 1.3) * Math.pow(diag / 5, 0.6);
+    // the newest sensor sizes, resolutions, lens stacks and apertures carry launch premiums (added up)
+    const prem = 1 + (levelPrem('camArea', A, t, 0.5, 1.5) - 1) + (levelPrem('mp', mp, t, 0.35, 1.5) - 1) + (levelPrem('lens', el, t, 0.3, 1.5) - 1) + (levelPrem('light', 1 / (N * N), t, 0.4, 1.5) - 1);
+    const sensor = (Math.pow(A, 1.15) * 0.2 * s.cost * learn(2001, t, 0.88, 0.8, 0.1) * earlyMul(st, t) + mp * 0.45 * learn(2001, t, 0.82, 1, 0.02)) * prem;
+    const lens = el * 0.55 * learn(2002, t, 0.92, 0.5, 0.4) * Math.pow(2.8 / N, 2) * Math.pow(diag / 5, 0.9) * prem;
     const extra = af.cost * decl(0.08, techMarket(af.tech), t, 0.3) + ois.cost * decl(0.1, techMarket(ois.tech), t, 0.35)
       + (p.periscope ? 10 * decl(0.1, 2019.2, t, 0.4) : 0) + 1.5 * decl(0.05, 2001, t, 0.5);
     const cost = (sensor + lens + extra) * (t < 2004 ? 1 + (2004 - t) * 0.15 : 1);
@@ -261,7 +430,7 @@ function evalCamera(p, t, role) {
     const weight = 0.6 + A * 0.04 + el * 0.12 + (ois.z ? 0.4 : 0) + (p.periscope ? 2 : 0);
     const footprint = p.periscope ? [diag + 4, diag + 14] : [diag + 3.5, diag + 3.5];
     return { A, diag, pitch, effMP, light, dr, z, zoom, score, cost, power, weight, footprint, binned, airy, blur, spot, fReal, rules: cameraRules(p, role) };
-  });
+  })();
 }
 function stdCamera(role, t, ok, lvl, sizeLimit) {
   if (!ok('cam_cmos') || !ok(CAM_ROLES[role].tech)) return null;
@@ -280,10 +449,12 @@ function stdCamera(role, t, ok, lvl, sizeLimit) {
     if (m >= 40 && !bin) return;
     if (Math.sqrt(area / m) >= (bin && m >= 40 ? 0.62 : 1.0) && (role === 'main' || m <= 16 || t > 2021)) mp = Math.max(mp, m);
   });
-  if (lvl === 0 && role === 'main') mp = CAM_MP[Math.max(0, CAM_MP.indexOf(mp) - 1)];
-  const lens = Math.max(1, ladderCap(LENS_CAPS, ok) - (lvl >= 2 ? 0 : 1));
+  // only a flagship's main camera gets the newest (and priciest) levels; everything else stays a step behind
+  const top = lvl === 3 && role === 'main';
+  if (!top) mp = CAM_MP[Math.max(0, CAM_MP.indexOf(mp) - (lvl === 0 && role === 'main' ? 2 : 1))];
+  const lens = Math.max(1, ladderCap(LENS_CAPS, ok) - (top ? 0 : 1) - (lvl <= 1 ? 1 : 0));
   const apOk = APERTURES.filter((a, i) => ok(APERTURE_TECH[i]));
-  const ap = apOk[Math.max(0, apOk.length - 1 - (lvl >= 2 ? 0 : 1) - (role === 'main' ? 0 : 1))];
+  const ap = apOk[Math.max(0, apOk.length - 1 - (top ? 0 : 1) - (lvl <= 1 ? 1 : 0))];
   const afOrder = CAM_AF_ORDER.filter(k => ok(CAM_AF[k].tech) && k !== 'laser');
   const af = role === 'front' ? (afOrder.length > 2 && lvl >= 2 ? afOrder[1] : 'fixed') : afOrder[Math.max(0, afOrder.length - 1 - (lvl >= 2 ? 0 : 1))];
   const ois = role === 'main' && lvl >= 2 ? (ok('cam_shift') && lvl === 3 ? 'shift' : ok('cam_ois') ? 'lens' : 'none') : role === 'tele' && ok('cam_ois') ? 'lens' : 'none';
