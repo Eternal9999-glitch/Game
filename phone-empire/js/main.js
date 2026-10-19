@@ -3,22 +3,24 @@
 //  Boot: start screen, real-time loop, menu, keyboard shortcuts.
 // ============================================================================
 
-const DAYS_PER_SEC = [0, 1.5, 5, 15];
+const DAYS_PER_SEC = [0, 2, 6, 20];
 let lastFrame = 0, dayAcc = 0, lastRender = 0, lastViewRender = 0, dirty = false;
 
 function startScreen() {
   const canContinue = hasSave();
-  let era = 1996, style = 'brand', cash = 10e3;
+  let era = 1973, style = 'brand', cash = 10e3;
   modal(`
     <div class="start-hero"><div style="font-size:40px">📱</div><div class="big">Phone Empire Tycoon</div>
-      <div class="dim">Start with ${fmtMoney(10e3)} and a sketch. Win investors, engineer phones part by part, build the factories, own the stack.</div></div>
+      <div class="dim">Start with ${fmtMoney(10e3)} and a sketch at the dawn of mobile phones. Win investors, engineer every part yourself, build the factories, own the stack.</div></div>
     <div class="field"><span class="lbl">Company name</span><input type="text" id="coName" value="Nimbus Devices" maxlength="28"></div>
     <h3>Playstyle</h3>
     <div class="style-pick" id="styleC">${Object.entries(PLAYSTYLES).map(([k, p]) => `<button data-style="${k}" class="${k === style ? 'on' : ''}">
       <span class="big">${p.icon}</span><b>${p.name}</b><span class="tiny dim">${p.tagline}</span><ul>${p.perks.map(x => `<li>${x}</li>`).join('')}</ul></button>`).join('')}</div>
     <h3>Starting era</h3>
-    <div class="choice" id="eraC">
-      <button data-era="1996" class="on"><b>1996 · Flip phones</b><span>Monochrome screens, 2G, NiMH batteries. No cameras yet.</span></button>
+    <div class="choice c5" id="eraC">
+      <button data-era="1973" class="on"><b>1973 · Car phones</b><span>The dawn of mobile: 6 kg radio-telephones in car trunks. Cellular networks are still a dream.</span></button>
+      <button data-era="1983"><b>1983 · First handhelds</b><span>AMPS and NMT cellular networks switch on. The brick phone era begins.</span></button>
+      <button data-era="1996"><b>1996 · Flip phones</b><span>GSM vs CDMA, monochrome screens, NiMH and Li-ion. No cameras yet.</span></button>
       <button data-era="2007"><b>2007 · Smartphones</b><span>Touchscreens arrive. 3G, megapixel cameras, the app era begins.</span></button>
       <button data-era="2016"><b>2016 · Modern</b><span>A crowded smartphone market, 14nm chips, the camera wars.</span></button>
     </div>
@@ -56,11 +58,11 @@ function howToPlay() {
     <div class="small" style="line-height:1.6">
       <p>It's <b>${dateLabel(now())}</b>. You have <b>${fmtMoney(S.cash)}</b>, a garage, and a plan. Playstyle: <b>${ps.icon} ${ps.name}</b> – ${ps.tagline}</p>
       <ol style="margin:8px 0 0 20px">
-        <li><b>📱 Phone Lab</b>: design a phone around the 3D model. Locked parts show which research unlocks them.</li>
-        <li>Hit <b>🧪 Build prototype</b> – cheap, and investors want to hold something.</li>
-        <li><b>💼 Investors</b>: pitch friends & family, then angels with your prototype. Later rounds need real revenue.</li>
-        <li><b>🚀 Develop & launch</b>, then order a production run from a contract manufacturer (<b>📦 Production</b>).</li>
-        <li>Spend on <b>marketing</b> (💰 Finance), keep <b>researching</b> (🔬) so your phones don't fall behind, and build your own <b>factories</b> (🏭) when the volume is there.</li>
+        <li><b>📱 Phone Lab</b>: build a phone around the live 3D model from supplier parts – or your own designs. <b>📐 Layout</b> lets you move every port, key, grille and camera.</li>
+        <li><b>🛠️ Parts Lab</b>: engineer your own displays (layer stacks), cameras (optics), batteries (cell chemistry), memory and radios. <b>💠 Chip Lab</b>: floorplan your own processor.</li>
+        <li>Hit <b>🧪 Prototype</b> – investors want to hold something. Then <b>💼 Investors</b>: friends & family, angels, and later rounds that need real revenue.</li>
+        <li><b>🚀 Develop & launch</b>. A production line at a contract manufacturer starts building stock automatically (<b>📦 Production</b>).</li>
+        <li>Spend on <b>marketing</b> (💰 Finance), keep <b>researching</b> (🔬) – networks change, electronics shrink, rivals move on – compare your devices in <b>🏁 Benchmarks</b>, and build <b>factories</b> (🏭) when the volume is there.</li>
       </ol>
       <p class="mt-s dim">Time is paused. Press <b>▶</b> (or keys <b>1–3</b>, <b>Space</b> to pause). The game autosaves every month.</p>
     </div>
@@ -96,7 +98,7 @@ function menu() {
         inp.onchange = () => {
           const f = inp.files[0]; if (!f) return;
           f.text().then(txt => {
-            try { const s = JSON.parse(txt); if (s.version !== 1) throw new Error(); S = s; monthlyRefresh(); computeDemand(); save(); closeModal(); showView('hq'); toast('Save imported.', 'good'); }
+            try { if (!loadState(JSON.parse(txt))) throw new Error(); save(); closeModal(); showView('hq'); toast('Save imported.', 'good'); }
             catch (err) { toast('That file is not a valid save.', 'bad'); }
           });
         };

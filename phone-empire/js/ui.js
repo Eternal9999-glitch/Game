@@ -1,34 +1,39 @@
 'use strict';
 // ============================================================================
-//  Shared UI plumbing: view router, top bar, toasts, modal dialogs, charts.
+//  Shared UI plumbing: view router, top bar, toasts, modal dialogs, charts and
+//  the option widgets (cards, toggles, research-gated sliders) used by the labs.
 // ============================================================================
 
 const $ = (sel, root) => (root || document).querySelector(sel);
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
+function setPath(o, p, v) { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; }
 
 const VIEWS = {};          // id -> {name, icon, render(el), live?}
-const VIEW_ORDER = ['hq', 'phonelab', 'chiplab', 'research', 'production', 'factories', 'market', 'investors', 'finance'];
+const VIEW_ORDER = ['hq', 'phonelab', 'labs', 'chiplab', 'research', 'production', 'factories', 'market', 'bench', 'investors', 'finance'];
+const NAV_SEPS = [4, 7];
 let currentView = 'hq';
 let pointerDown = false;
 document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
 document.addEventListener('pointerup', () => { pointerDown = false; }, true);
+document.addEventListener('pointercancel', () => { pointerDown = false; }, true);
 
 function registerView(id, v) { VIEWS[id] = v; }
 function showView(id) {
+  if (!VIEWS[id]) return;
   currentView = id;
   renderNav();
   const el = $('#view');
   el.scrollTop = 0;
   renderCurrent(true);
 }
-// force: always re-render. 'month': re-render even static views (labs) unless the player is typing.
+// force: always re-render. 'month': re-render even static views (labs) unless the player is busy.
 function renderCurrent(force) {
   const v = VIEWS[currentView], el = $('#view');
   if (!v) return;
   if (force !== true) {
-    // never yank an input (or a half-finished click) out from under the player
-    if (pointerDown) return;
+    if (pointerDown) return;                      // never yank a half-finished click
     const a = document.activeElement;
     if (a && el.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
     if (v.live === false && force !== 'month') return;
@@ -39,14 +44,19 @@ function renderCurrent(force) {
 }
 function renderNav() {
   const nav = $('#nav');
-  const freeSlots = S ? researchSlots() - S.research.length : 0;
-  const badges = { research: freeSlots > 0 && TECHS.some(tc => techState(tc) === 'available') ? freeSlots : 0,
-    investors: S && S.funding.offer ? '!' : 0, factories: S ? S.offers.length : 0 };
+  if (!S) return;
+  const freeSlots = researchSlots() - S.research.length;
+  const badges = {
+    research: freeSlots > 0 && TECHS.some(tc => techState(tc) === 'available') ? freeSlots : 0,
+    investors: S.funding.offer ? '!' : 0, factories: S.offers.length,
+    labs: S.designs.filter(d => d.status === 'engineering').length || 0,
+  };
   nav.innerHTML = VIEW_ORDER.map((id, i) => {
     const v = VIEWS[id];
+    if (!v) return '';
     const b = badges[id] ? `<span class="badge">${badges[id]}</span>` : '';
-    return (i === 4 || i === 6 ? '<div class="sep"></div>' : '') +
-      `<button data-view="${id}" class="${id === currentView ? 'on' : ''}"><span class="ico">${v.icon}</span>${v.name}${b}</button>`;
+    return (NAV_SEPS.includes(i) ? '<div class="sep"></div>' : '') +
+      `<button data-view="${id}" class="${id === currentView ? 'on' : ''}"><span class="ico">${v.icon}</span><span class="nm">${v.name}</span>${b}</button>`;
   }).join('');
   $$('button', nav).forEach(b => { b.onclick = () => showView(b.dataset.view); });
 }
@@ -59,13 +69,12 @@ function renderTop() {
   const last = S.history[S.history.length - 1];
   const prof = last ? last.profit : 0;
   const units = S.products.reduce((a, p) => a + (p.status === 'active' ? p.demand || 0 : 0), 0);
-  const cashCls = S.cash < 0 ? 'bad' : '';
   $('#topStats').innerHTML = [
-    [`<b class="${cashCls}">${fmtMoney(S.cash)}</b>`, 'Cash'],
+    [`<b class="${S.cash < 0 ? 'bad' : ''}">${fmtMoney(S.cash)}</b>`, 'Cash'],
     [`<b class="${prof > 0 ? 'good' : prof < 0 ? 'bad' : ''}">${prof > 0 ? '+' : ''}${fmtMoney(prof)}</b>`, 'Last month'],
     [`<b>${fmtMoney(netWorth())}</b>`, 'Net worth'],
     [`<b>${fmtNum(units)}</b>`, 'Demand / mo'],
-    [`<b>${fmtPct(S.aware)}</b>`, 'Brand awareness'],
+    [`<b>${fmtPct(S.aware)}</b>`, 'Awareness'],
     [`<b>${S.rep.toFixed(1)}</b>`, 'Reputation'],
     [`<b>${fmtPct(S.own, 0)}</b>`, 'You own'],
   ].map(([v, l]) => `<div class="stat">${v}<span>${l}</span></div>`).join('');
@@ -82,9 +91,9 @@ function toast(text, kind) {
   const all = $$('.toast');
   if (all.length > 4) all[0].remove();
 }
-function modal(html, onMount) {
+function modal(html, onMount, wide) {
   const m = $('#modal');
-  m.innerHTML = `<div class="dialog">${html}</div>`;
+  m.innerHTML = `<div class="dialog ${wide ? 'wide' : ''}">${html}</div>`;
   m.classList.remove('hidden');
   m.onclick = e => { if (e.target === m && !m.dataset.sticky) closeModal(); };
   if (onMount) onMount($('.dialog', m));
@@ -104,9 +113,8 @@ function scoreBars(subs, compare) {
   return '<div class="bars">' + Object.keys(SUB_LABELS).map(k => {
     const v = subs[k], w = clamp(v / 1.5, 0, 100);
     const mk = compare ? `<div class="mark" style="left:${clamp(compare[k] / 1.5, 0, 100)}%" title="Rival average ${Math.round(compare[k])}"></div>` : '';
-    const cls = v >= 100 ? 'excl' : '';
-    return `<div class="bar"><span class="dim">${SUB_LABELS[k]}</span><div class="track"><div class="fill" style="width:${w}%"></div>
-      <div class="mark100" style="left:66.6%"></div>${mk}</div><b class="mono right ${cls}">${Math.round(v)}</b></div>`;
+    return `<div class="bar"><span class="dim">${SUB_ICONS[k]} ${SUB_LABELS[k]}</span><div class="track"><div class="fill" style="width:${w}%"></div>
+      <div class="mark100" style="left:66.6%"></div>${mk}</div><b class="mono right ${v >= 100 ? 'excl' : ''}">${Math.round(v)}</b></div>`;
   }).join('') + '</div>';
 }
 function meter(frac, cls) { return `<div class="meter ${cls || ''}"><div style="width:${clamp(frac * 100, 0, 100)}%"></div></div>`; }
@@ -116,19 +124,63 @@ function reviewTag(r) {
   return `<span class="tag ${cls}">${r.toFixed(1)}</span>`;
 }
 function segBtn(name, options, value, attrs) {
-  // options: [{v, label, disabled, ex, title}]
   return `<div class="segbtn" data-seg="${name}" ${attrs || ''}>` + options.map(o =>
     `<button data-v="${esc(o.v)}" class="${String(o.v) === String(value) ? 'on' : ''} ${o.ex ? 'ex' : ''}" ${o.disabled ? 'disabled' : ''} title="${esc(o.title || '')}">${o.label}</button>`).join('') + '</div>';
 }
-function lockReason(id) {
-  if (!id) return '';
-  const tc = TECH[id];
-  if (S.researched[id]) return `${tc.name}: researched – needs your own ${FACTORY_TYPES[TECH_CATS[tc.cat].factory]?.name || 'factory'} until ${dateLabel(tc.market)}`;
-  return `${tc.name}: research it first (🔬 Research)`;
+// a tech's state for the player. mode 'std': a supplier part (needs to be industry standard too)
+function techUI(id, mode) {
+  if (!id || !TECH[id]) return { ok: true };
+  const av = playerAv(), tc = TECH[id];
+  if (mode === 'std') {
+    if (av.std(id)) return { ok: true };
+    if (av.has(id)) return { ok: false, msg: `Suppliers sell it from ${dateLabel(tc.market)} – design your own part to use it now` };
+  } else if (av.ok(id)) return { ok: true, ex: !av.market(id) };
+  const st = techState(tc);
+  if (st === 'done') return { ok: false, msg: `Researched – needs your own ${FACTORY_TYPES[TECH_CATS[tc.cat].factory].name} until ${dateLabel(tc.market)}` };
+  if (st === 'active') { const r = S.research.find(x => x.id === id); return { ok: false, msg: `Researching… ${Math.round(r.progress / r.days * 100)}%` }; }
+  if (st === 'future') return { ok: false, msg: `Can't be researched before ${dateLabel(tc.never ? tc.opens : tc.market - tc.lead)}` };
+  if (st === 'locked') return { ok: false, msg: 'Needs ' + missingReqs(tc).join(', ') };
+  return { ok: false, rs: id, msg: `${tc.name}: ${fmtMoney(researchCost(tc))} · ${researchDays(tc)} d${now() < tc.market ? ' · exclusive' : ''}` };
 }
+function lockFoot(u) {
+  if (u.ok) return u.ex ? '<span class="oc-ex">◆ exclusive</span>' : '';
+  return u.rs ? `<button class="btn sm oc-rs" data-rs="${u.rs}">🔬 ${esc(u.msg)}</button>` : `<span class="oc-lock">🔒 ${esc(u.msg)}</span>`;
+}
+// options: [{v, title, sub, tech}]  →  clickable cards that set `path`
+function optCards(path, options, value, cols, mode) {
+  return `<div class="ocards" style="--cols:${cols || 2}">` + options.map(o => {
+    const u = o.disabled ? { ok: false, msg: o.disabled } : techUI(o.tech, mode);
+    const sel = String(o.v) === String(value);
+    const tip = o.tip || (o.tech && TECH[o.tech] ? TECH[o.tech].desc : '');
+    return `<div class="ocard ${sel ? 'on' : ''} ${u.ok ? '' : 'locked'} ${u.ex ? 'ex' : ''}" ${u.ok ? `data-pick="${path}" data-v="${esc(o.v)}"` : ''} title="${esc(tip)}">
+      <div class="oc-t">${o.title}</div>${o.sub ? `<div class="oc-s">${o.sub}</div>` : ''}${lockFoot(u)}</div>`;
+  }).join('') + '</div>';
+}
+function toggleCard(path, title, sub, tech, value, disabledMsg, mode) {
+  const u = techUI(tech, mode);
+  const dis = !u.ok || disabledMsg;
+  return `<div class="ocard tog ${value ? 'on' : ''} ${dis ? 'locked' : ''} ${u.ex ? 'ex' : ''}" ${dis ? '' : `data-toggle="${path}"`} title="${esc(tech && TECH[tech] ? TECH[tech].desc : '')}">
+    <div class="row between"><div class="oc-t">${title}</div><span class="sw ${value ? 'on' : ''}"></span></div>
+    ${sub ? `<div class="oc-s">${sub}</div>` : ''}${disabledMsg && u.ok ? `<span class="oc-lock">${esc(disabledMsg)}</span>` : lockFoot(u)}</div>`;
+}
+// slider limited by a research ladder [[techId, maxValue], ...]
+function capSlider(path, label, min, max, step, value, fmt, ladder, scale, mode) {
+  const av = playerAv();
+  const okFn = mode === 'std' ? av.std : av.ok;
+  const next = ladder ? ladder.find(([id]) => id && !okFn(id)) : null;
+  const u = next ? techUI(next[0], mode) : null;
+  return `<div class="cap">
+    <div class="row between"><span class="dim small">${label}</span><b class="mono" data-show="${path}">${fmt(value)}</b></div>
+    <input type="range" data-path="${path}" data-num data-fmt="${esc(label)}" min="${min}" max="${max}" step="${step}" value="${value}" ${min >= max ? 'disabled' : ''}>
+    <div class="row between tiny faint"><span>${fmt(min)}</span><span>max ${fmt(max)}</span></div>
+    ${next ? `<div class="cap-next"><span class="tiny">Next: <b>${TECH[next[0]].name}</b> → ${fmt(next[1] * (scale || 1))}</span>${lockFoot(u)}</div>` : ''}
+  </div>`;
+}
+function issuesList(list, cls) { return list.map(x => `<div class="note ${cls || 'bad'}">${cls === 'warn' ? '⚠️' : '⛔'} ${esc(x)}</div>`).join(''); }
 
 // ---- charts ---------------------------------------------------------------------------
 function drawChart(canvas, series, opts) {
+  if (!canvas) return;
   opts = opts || {};
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth, H = canvas.clientHeight;
@@ -167,44 +219,3 @@ function drawChart(canvas, series, opts) {
   }
 }
 function legend(series) { return '<div class="legend">' + series.map(s => `<span><span class="swatch" style="background:${s.color}"></span>${esc(s.name)}</span>`).join('') + '</div>'; }
-
-// ---- device drawing (SVG) ----------------------------------------------------------------
-function deviceSVG(spec, ev, scale) {
-  const k = scale || 34;                   // px per inch
-  const w = ev.dims.w * k, h = ev.dims.h * k;
-  const sw = ev.dims.screenW * k, sh = ev.dims.screenH * k;
-  const r = Math.min(w, h) * (spec.display.fullview ? 0.13 : 0.1);
-  const col = spec.color || '#1f2430';
-  const sx = (w - sw) / 2, sy = (h - sh) / 2 + (spec.display.fullview ? 0 : h * 0.005);
-  const homeBtn = !spec.display.fullview && spec.cat === 'phone' && (h - sh) / 2 > 14;
-  const front = `<svg width="${w + 8}" height="${h + 8}" viewBox="-4 -4 ${w + 8} ${h + 8}">
-    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="${col}" stroke="#5b6a8c" stroke-width="1.5"/>
-    <rect x="${sx}" y="${sy}" width="${sw}" height="${sh}" rx="${spec.display.fullview ? r * 0.8 : 3}" fill="url(#scr)"/>
-    <defs><linearGradient id="scr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22345c"/><stop offset=".55" stop-color="#3a3176"/><stop offset="1" stop-color="#14203a"/></linearGradient></defs>
-    ${spec.display.fullview ? `<circle cx="${w / 2}" cy="${sy + 9}" r="3.2" fill="#05070c"/>` : `<rect x="${w / 2 - 12}" y="${sy / 2 - 1.5}" width="24" height="3" rx="1.5" fill="#05070c88"/>`}
-    ${homeBtn ? `<circle cx="${w / 2}" cy="${h - (h - sh - sy) / 2}" r="${Math.min(9, (h - sh) / 5)}" fill="none" stroke="#ffffff33" stroke-width="1.5"/>` : ''}
-    <text x="${w / 2}" y="${sy + sh * 0.18}" fill="#ffffffcc" font-size="${Math.max(9, sw / 6)}" text-anchor="middle" font-weight="700" font-family="system-ui">9:41</text>
-  </svg>`;
-  // back: camera island
-  const cams = camerasList(spec.cams).filter(([kk]) => kk !== 'front');
-  const lens = cams.map(([kk, c]) => 5 + Math.sqrt(SENSORS[c.sensor].area) * 0.9 + (kk === 'main' ? 2 : 0));
-  const pad = 6, ix = 10, iy = 10;
-  const cols = cams.length > 2 ? 2 : 1;
-  const cell = Math.max(...lens) * 2 + 4;
-  const iw = cols * cell + pad, ih = Math.ceil(cams.length / cols) * cell + pad;
-  const lensSvg = cams.map(([kk, c], i) => {
-    const cx = ix + pad / 2 + (i % cols) * cell + cell / 2, cy = iy + pad / 2 + Math.floor(i / cols) * cell + cell / 2;
-    return `<circle cx="${cx}" cy="${cy}" r="${lens[i]}" fill="#0b0e15" stroke="#7d8aa8" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="${lens[i] * 0.45}" fill="#1b2a4a"/><circle cx="${cx - lens[i] * 0.25}" cy="${cy - lens[i] * 0.25}" r="${lens[i] * 0.15}" fill="#ffffff55"/>` +
-      (kk === 'tele' && c.periscope ? `<rect x="${cx - 4}" y="${cy - 4}" width="8" height="8" fill="#22334f"/>` : '');
-  }).join('');
-  const back = `<svg width="${w + 8}" height="${h + 8}" viewBox="-4 -4 ${w + 8} ${h + 8}">
-    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="${col}" stroke="#5b6a8c" stroke-width="1.5"/>
-    ${spec.body.mat === 'glass' || spec.body.mat === 'steel' || spec.body.mat === 'ceramic' ? `<rect x="2" y="2" width="${w - 4}" height="${h - 4}" rx="${r - 1}" fill="url(#gl)"/><defs><linearGradient id="gl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff22"/><stop offset=".5" stop-color="#ffffff00"/><stop offset="1" stop-color="#ffffff11"/></linearGradient></defs>` : ''}
-    <rect x="${ix}" y="${iy}" width="${iw}" height="${ih}" rx="${Math.min(14, iw / 3)}" fill="#00000040" stroke="#ffffff22"/>
-    ${lensSvg}
-    <circle cx="${ix + iw + 8}" cy="${iy + 8}" r="3" fill="#ffe9a8aa"/>
-    ${spec.feat.fp === 'rear' ? `<circle cx="${w / 2}" cy="${h * 0.32}" r="${Math.min(11, w / 8)}" fill="none" stroke="#ffffff30" stroke-width="2"/>` : ''}
-    <text x="${w / 2}" y="${h * 0.82}" fill="#ffffff55" font-size="${Math.max(8, w / 9)}" text-anchor="middle" font-family="system-ui" font-weight="800">${esc(S.company.split(' ')[0].toUpperCase())}</text>
-  </svg>`;
-  return front + back;
-}

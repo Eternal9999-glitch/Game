@@ -4,7 +4,7 @@ Browser games, each playable straight from its HTML file — no install, no buil
 
 | Game | Play | What it is |
 |---|---|---|
-| 📱 **Phone Empire Tycoon** | [`phone-empire/index.html`](phone-empire/index.html) · [docs](phone-empire/README.md) | Start in 1996 with $10k: raise money from investors, design phones part by part around a live 3D model, research ~160 upgrades, floorplan your own chips, and build phones with contract manufacturers or your own factories. Three playstyles. |
+| 📱 **Phone Empire Tycoon** | [`phone-empire/index.html`](phone-empire/index.html) · [docs](phone-empire/README.md) | Start in 1973 with $10k and a car phone: raise money from investors, research ~410 technologies from 0G to 6G, engineer your own displays, cameras, batteries, memory, radios and chips, arrange every port and button on a live 3D model, compare devices in benchmarks, and build them with contract manufacturers or your own factories. Three playstyles. |
 | 🧊 **VoxelVerse** | [`index.html`](index.html) | Third-person multiplayer voxel sandbox (details below). |
 
 ---

@@ -5,33 +5,32 @@
 //  I/O and modems must sit on the die edge, and every mm² costs money & yield.
 // ============================================================================
 
-// a modest, valid 5×5 starter: one P-core wrapped in cache, GPU fed by two memory channels
+// a modest, valid 5×5 starter: one CPU core wrapped in cache, GPU fed by two memory channels
+// (blocks you have not researched turn into cache)
 const PRESET = [
-  ['io', 0, 0], ['cache', 1, 0], ['pcore', 2, 0], ['cache', 3, 0], ['cache', 4, 0],
+  ['io', 0, 0], ['cache', 1, 0], ['pcore', 2, 0], ['cache', 3, 0], ['dsp', 4, 0],
   ['cache', 0, 1], ['cache', 1, 1], ['cache', 3, 1], ['isp', 4, 1],
   ['gpu', 0, 2], ['cache', 2, 2], ['ecore', 3, 2], ['ecore', 4, 2],
   ['cache', 2, 3], ['ecore', 3, 3], ['ecore', 4, 3],
   ['io', 0, 4], ['media', 1, 4], ['cache', 2, 4], ['modem', 3, 4],
 ];
 
+function lockReason(id) { const u = techUI(id); return TECH[id].name + ': ' + (u.msg || 'research it first'); }
 function blockLocked(type, av) {
   const id = BLOCKS[type].tech;
   return id && !av.ok(id) ? id : null;
-}
-function chipDesignFromDraft(dr, av) {
-  return Object.assign({}, dr, { arch: archGenFor(av), modemGen: modemGenFor(av) });
 }
 
 const ChipLab = {
   name: 'Chip Lab', icon: '💠', live: false,
   sel: 'pcore', rot: false, heat: false, hover: null,
   render(el) {
-    if (!S.chipDraft) S.chipDraft = defaultChipDraft(now());
+    if (!S.chipDraft) S.chipDraft = defaultChipDraft();
     const dr = S.chipDraft;
     const nodes = nodesForDesign();
     if (!nodes.some(n => n.nm === dr.nm)) { dr.nm = nodes[nodes.length - 1].nm; }
     const node = nodeByNm(dr.nm);
-    dr.clock = clamp(dr.clock, +(node.fnom * 0.6).toFixed(2), +(node.fnom * 1.25).toFixed(2));
+    dr.clock = clamp(dr.clock, node.fnom * 0.6, node.fnom * 1.25);
     const av = playerAv();
     el.innerHTML = `
       <div class="view-title"><h1>💠 Chip Lab</h1><p>Floorplan a system-on-chip. Place blocks on the die, balance speed against heat, area and yield, then tape it out.</p></div>
@@ -61,8 +60,8 @@ const ChipLab = {
             </div>
             <div class="die-ctl mt-s">
               <span class="dim small">Clock</span>
-              <input type="range" id="chipClock" min="${(node.fnom * 0.6).toFixed(2)}" max="${(node.fnom * 1.25).toFixed(2)}" step="0.01" value="${dr.clock}" style="width:180px">
-              <b id="clockVal" class="mono">${dr.clock.toFixed(2)} GHz</b>
+              <input type="range" id="chipClock" min="${node.fnom * 0.6}" max="${node.fnom * 1.25}" step="${node.fnom / 100}" value="${dr.clock}" style="width:180px">
+              <b id="clockVal" class="mono">${fmtClock(dr.clock)}</b>
               <label class="chk"><input type="checkbox" id="heatT" ${this.heat ? 'checked' : ''}> 🌡 Heat map</label>
               <button class="btn sm" data-act="rot">⟳ Rotate (R)</button>
               <button class="btn sm" data-act="preset" title="Fill a 5×5 die with a simple, valid starter layout you can improve on">✨ Starter layout</button>
@@ -83,7 +82,7 @@ const ChipLab = {
   myChips() {
     if (!S.chips.length) return '<div class="dim small">No chips yet. Design one and tape it out!</div>';
     return `<table class="tbl">${S.chips.slice().reverse().map(c => `<tr>
-      <td><b>${esc(c.name)}</b><div class="tiny faint">${nodeLabel(c.stats.nm)} · ${c.stats.area} mm² · CPU ${fmtNum(c.stats.cpu)}</div></td>
+      <td><b>${esc(c.name)}</b><div class="tiny faint">${nodeLabel(c.stats.nm)} · ${c.stats.area} mm² · CPU ${fmtSci(c.stats.cpu)}</div></td>
       <td class="num">${c.status === 'ready' ? '<span class="tag good">ready</span>' : `<span class="tag warn">${Math.max(0, c.readyDay - S.day)}d</span>`}
       <div><button class="btn sm mt-s" data-edit="${c.id}" title="Load as a new revision">Revise</button></div></td></tr>
       ${c.status === 'ready' ? `<tr><td colspan="2"><label class="chk small" title="Rival brands may buy it if it beats the vendors' chips on value"><input type="checkbox" data-list="${c.id}" ${c.listed ? 'checked' : ''}> Sell to other brands at</label>
@@ -220,7 +219,7 @@ const ChipLab = {
       this.render(el);
     };
     $('#chipNode').onchange = e => { dr.nm = Number(e.target.value); dr.clock = nodeByNm(dr.nm).fnom; this.render(el); };
-    $('#chipClock').oninput = e => { dr.clock = Number(e.target.value); $('#clockVal').textContent = dr.clock.toFixed(2) + ' GHz'; this.changed(); };
+    $('#chipClock').oninput = e => { dr.clock = Number(e.target.value); $('#clockVal').textContent = fmtClock(dr.clock); this.changed(); };
     $('#heatT').onchange = e => { this.heat = e.target.checked; this.drawDie(); };
   },
   stats() {
@@ -233,29 +232,29 @@ const ChipLab = {
     const node = nodeByNm(dr.nm);
     const vs = vendorChipsAvailable(t);
     const flag = flagshipChip(t);
-    const mid = vs.filter(c => c.tier === 'mid').sort((a, b) => b.cpu - a.cpu)[0];
+    const mid = vs.filter(c => c.tier === 'mid').sort((a, b) => b.cpu - a.cpu)[0] || vs.filter(c => c.tier === 'budget')[0];
     const cmp = (v, ref) => ref ? `<span class="${v >= ref ? 'good' : 'dim'}">${Math.round(v / ref * 100)}%</span>` : '';
     const fab = hasFab(dr.nm);
     const early = t < node.year;
     box.innerHTML = `
-      <div class="card"><h2>Performance <span class="sub">arch v${design.arch} · ${MODEM_GENS[design.modemGen]} modem tech</span></h2>
+      <div class="card"><h2>Performance <span class="sub">arch v${design.arch} · ${GEN_LABEL(design.modemGen)} modem tech</span></h2>
         <table class="tbl">
           <tr><th></th><th class="num">Yours</th><th class="num" title="${esc(mid ? mid.name : '')}">vs mid</th><th class="num" title="${esc(flag.name)}">vs flagship</th></tr>
-          <tr><td>CPU (multi)</td><td class="num"><b>${fmtNum(ev.cpu)}</b></td><td class="num">${cmp(ev.cpu, mid && mid.cpu)}</td><td class="num">${cmp(ev.cpu, flag.cpu)}</td></tr>
-          <tr><td>CPU (single)</td><td class="num">${fmtNum(ev.single)}</td><td class="num">${cmp(ev.single, mid && mid.single)}</td><td class="num">${cmp(ev.single, flag.single)}</td></tr>
-          <tr><td>GPU (GFLOPS)</td><td class="num"><b>${ev.gpu.toFixed(ev.gpu < 10 ? 1 : 0)}</b></td><td class="num">${cmp(ev.gpu, mid && mid.gpu)}</td><td class="num">${cmp(ev.gpu, flag.gpu)}</td></tr>
+          <tr><td>CPU (multi)</td><td class="num"><b>${fmtSci(ev.cpu)}</b></td><td class="num">${cmp(ev.cpu, mid && mid.cpu)}</td><td class="num">${cmp(ev.cpu, flag.cpu)}</td></tr>
+          <tr><td>CPU (single)</td><td class="num">${fmtSci(ev.single)}</td><td class="num">${cmp(ev.single, mid && mid.single)}</td><td class="num">${cmp(ev.single, flag.single)}</td></tr>
+          <tr><td>GPU (GFLOPS)</td><td class="num"><b>${ev.gpu ? fmtSci(ev.gpu) : '—'}</b></td><td class="num">${cmp(ev.gpu, mid && mid.gpu)}</td><td class="num">${cmp(ev.gpu, flag.gpu)}</td></tr>
           <tr><td>AI (TOPS)</td><td class="num">${ev.tops ? ev.tops.toFixed(1) : '—'}</td><td class="num">${mid && mid.tops ? cmp(ev.tops, mid.tops) : ''}</td><td class="num">${flag.tops ? cmp(ev.tops, flag.tops) : ''}</td></tr>
-          <tr><td>ISP</td><td class="num">${ev.isp ? ev.isp.toFixed(2) : '—'}</td><td class="num">${mid ? cmp(ev.isp, mid.isp) : ''}</td><td class="num">${cmp(ev.isp, flag.isp)}</td></tr>
+          <tr><td>ISP</td><td class="num">${ev.isp ? fmtSci(ev.isp) : '—'}</td><td class="num">${mid && mid.isp ? cmp(ev.isp, mid.isp) : ''}</td><td class="num">${flag.isp ? cmp(ev.isp, flag.isp) : ''}</td></tr>
           <tr><td>Peak power</td><td class="num"><b>${ev.power.toFixed(2)} W</b></td><td class="num dim">${mid ? mid.power.toFixed(1) : ''}</td><td class="num dim">${flag.power.toFixed(1)}</td></tr>
           <tr><td>Hotspot</td><td class="num ${ev.hotT > 90 ? 'bad' : ev.hotT > 80 ? 'warn' : 'good'}"><b>${Math.round(ev.hotT)}°C</b></td><td colspan="2" class="num tiny ${ev.hotFactor < 1 ? 'bad' : 'faint'}">${ev.hotFactor < 1 ? 'throttling −' + Math.round((1 - ev.hotFactor) * 100) + '%' : 'limit 90°C'}</td></tr>
         </table>
-        <div class="tiny faint mt-s">Cores: ${ev.pCores}P + ${ev.eCores}E · ${ev.ioN} memory channel${ev.ioN === 1 ? '' : 's'} · ${MODEM_GENS[ev.modemGen] === 'None' ? 'no modem' : MODEM_GENS[ev.modemGen] + ' modem'}</div>
+        <div class="tiny faint mt-s">Cores: ${ev.pCores} big + ${ev.eCores} efficiency · ${ev.ioN} memory channel${ev.ioN === 1 ? '' : 's'} · ${ev.hasModem ? GEN_LABEL(ev.modemGen) + ' baseband' : 'no baseband'}${ev.dsp ? ' · DSP' : ''}</div>
       </div>
       <div class="card"><h2>Silicon economics</h2>
         <div class="spec-list">
           <span class="k">Die area</span><span class="v">${ev.area} mm² <span class="faint">(${Math.round(ev.fill * 100)}% used)</span></span>
-          <span class="k">Transistors</span><span class="v">${ev.transistors >= 1 ? ev.transistors.toFixed(1) + ' B' : Math.round(ev.transistors * 1000) + ' M'}</span>
-          <span class="k">Dies per 300 mm wafer</span><span class="v">${e.dpw}</span>
+          <span class="k">Transistors</span><span class="v">${ev.transistors >= 1 ? ev.transistors.toFixed(1) + ' B' : ev.transistors >= 0.001 ? Math.round(ev.transistors * 1000) + ' M' : Math.round(ev.transistors * 1e6) + ' k'}</span>
+          <span class="k">Dies per ${node.waferD} mm wafer</span><span class="v">${e.dpw}</span>
           <span class="k" title="Defects per cm² — falls as a node matures">Defect density</span><span class="v">${e.D0.toFixed(2)} /cm²</span>
           <span class="k">Yield</span><span class="v ${e.yield < 0.6 ? 'warn' : ''}">${Math.round(e.yield * 100)}%</span>
           <span class="k">Good dies / wafer</span><span class="v">${Math.round(e.good)}</span>
@@ -276,3 +275,4 @@ const ChipLab = {
   },
 };
 registerView('chiplab', ChipLab);
+function fmtClock(ghz) { return ghz >= 1 ? ghz.toFixed(2) + ' GHz' : ghz >= 0.001 ? (ghz * 1000).toFixed(ghz < 0.01 ? 1 : 0) + ' MHz' : (ghz * 1e6).toFixed(0) + ' kHz'; }
