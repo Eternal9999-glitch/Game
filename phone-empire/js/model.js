@@ -237,9 +237,20 @@ const TIER_PREMIUM = { flagship: 1, mid: 0.6, budget: 0.3 };
 function vendorChipPrice(chip, t) {
   const e = chipEconomics(chip.area, chip.nm, t);
   const silicon = (e.waferPrice / e.good) * 1.5 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1);
-  const rel = clamp(chip.cpu / Math.max(1e-12, flagshipChip(t).cpu), 0, 1);
+  const rel = clamp(chip.cpu / Math.max(1e-12, frontierCpu(t)), 0, 1);
   const premium = interp(CHIP_PREMIUM, t) * segBudget('phone', 'premium', t) * TIER_PREMIUM[chip.tier] * Math.pow(rel, 1.4);
   return (silicon + premium) * eventMul('soc', t);
+}
+// a smooth curve of the best vendor CPU (log-interpolated over yearly peaks), so prices glide down
+// instead of dropping the day a new flagship ships
+const _frontier = [];
+function frontierCpu(t) {
+  if (!_frontier.length) for (let y = 1971; y <= 2061; y++) {
+    let best = 1e-9;
+    for (const c of VENDOR_CHIPS) if (c.tier === 'flagship' && c.release <= y + 1 && c.release > y - 2.5) best = Math.max(best, c.cpu);
+    _frontier.push([y + 0.5, Math.max(best, _frontier.length ? _frontier[_frontier.length - 1][1] : 1e-9)]);
+  }
+  return logInterp(_frontier, t);
 }
 const _flagChip = new Map();
 function flagshipChip(t) {

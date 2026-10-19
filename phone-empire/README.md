@@ -38,13 +38,21 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
      and power amplifier, with a world coverage map.
 
    Your designs skip the 45% supplier markup (×1.22 at contract part makers, ×1.0 in your own plant) and can use exclusive tech.
-4. **💠 Chip Lab**: floorplan a SoC on a silicon die, from 10 µm logic in 1973 to 1.4 nm, then tape it out. You can also sell it to rival brands.
+4. **💠 Processor** (a Parts Lab tab): pick a process node (10 µm in 1973 → 1.4 nm), how many CPU cores, cache, GPU, NPU, ISP, modem and memory
+   controllers go on the die, the clock and options. Area, Poisson yield, clock binning (few dies run fast), heat, speed and price follow; maxing
+   everything costs thousands per chip. Tape-out costs a mask set plus an engineering budget. You can also sell your chip to rival brands.
    Vendors price chips by performance: the newest flagship costs about 10% of a premium phone's price (≈$40 in 2007, ≈$190 in 2024),
    older and slower chips far less. Your own chip costs only its silicon plus a one-off tape-out. The 🧠 Chip design research track
    (CPU architectures, blocks) only affects chips you design yourself.
 5. **🧪 Prototype → 💼 Investors**: friends & family, then angels (who judge your prototype), then seed, Series A–C and an IPO.
 6. **🚀 Develop & launch**: a production line at a contract manufacturer (or your own plant) builds stock continuously.
-   **📦 Production** lets you pick the maker and the output rate.
+   **📦 Production** lets you pick the maker and the output rate. Parts and chips you designed are produced **into stock** first – in your own
+   plant (at cost, small capacity), by a contract part maker (+22%, monthly tooling fee, ~3 weeks) or at a foundry (~2½ months, with a wafer
+   allocation that grows as you use it). Phones can't be built without them; you can stop a part line at any time.
+7. **📣 Marketing** (💰 Finance): split the budget over budget / mid / premium / ultra buyers (each segment has its own awareness) and pick a
+   message (camera, display, performance, battery…). Ads lift how buyers see those strengths – fully only if your phone really leads there.
+   **Trends** (camera-phone boom, mobile gaming explosion, selfie craze, 5G hype, AI phones…) shift what buyers want for a few years, and ads
+   that ride a trend work better.
 7. **🔬 Research**: about 410 technologies across 11 tracks, shown as a tech tree over time:
    - networks
    - displays
@@ -79,7 +87,7 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
 
    Your Phone Lab draft is shown in the ranking so you can see where it would land.
 
-Keys: `Space` pause/resume · `1`–`3` game speed · `R` rotate a block in the Chip Lab · right-click removes a block.
+Keys: `Space` pause/resume · `1`–`3` game speed.
 
 ## The realism model
 
@@ -89,8 +97,9 @@ Keys: `Space` pause/resume · `1`–`3` game speed · `R` rotate a block in the 
 | **Networks** | Five regions, each with its own carriers that launch and shut down standards over time. A phone only sells to buyers whose carrier runs a standard its radio supports, and RF bands decide whether it works everywhere. Real-world speed depends on how far each network has rolled out. |
 | **Parts** | Displays: brightness, contrast, gamut, PPI, power, stack thickness and a defect-density yield. Cameras: pixel pitch, diffraction (Airy disk), lens blur, light gathering, dynamic range and module height (the camera bump). Batteries: Wh/L, Wh/kg, C-rate, cycles and incident risk. Memory: per-bit prices by year and die. Chips: transistor density, wafers, Poisson yield and heat. |
 | **Bodies** | The body is fitted around the parts. Thickness grows with internal volume up to a limit for the form factor, then the body grows taller. Weight, volume, screen-to-body ratio and heat dissipation follow from it. |
-| **Market** | Historical handset volumes (≈1,500/month in 1973 → ~160M at the 2016 peak), four buyer segments and five regions. Buyers weigh a phone's quality (against a smooth curve of what a flagship delivers), price, brand awareness, reviews and coverage with gentle power laws. Demand drifts toward its target over a few weeks, so nothing jumps overnight. |
-| **Money** | Supplier markups, retail and distribution (30% of the sticker price), manufacturer line fees, overhead, 22% tax, investor dilution and an overdraft limit. Production keeps back enough cash for the month's bills. |
+| **Market** | Historical handset volumes (≈1,500/month in 1973 → ~160M at the 2016 peak), four buyer segments and five regions. Buyers weigh quality (against a smooth curve of what a flagship delivers), price, awareness, shelf space, reviews and coverage – and check a **fair price** (what rivals ask for the same quality, adjusted for brand: a newcomer must undercut), **deal-breakers** (far behind on something the segment cares about, no camera, an old network) and trends. Rivals cut prices in segments you are winning. Demand drifts toward its target over a few weeks. |
+| **Reviews** | Five outlets score each category against the phone's price segment plus value for money, each with its own priorities; owners' ratings then drift with value and reliability and feed your reputation. |
+| **Money** | Supplier markups, retail (30% of the sticker price), patent royalties (2.5–4.5% by network generation), warranty & returns, freight & duties, line and tooling fees, staff per device and part line, sales & admin (9% of revenue), 22% tax, investor dilution and an overdraft limit. A well-run phone business nets roughly 5–12%. |
 | **Rivals** | Ten brands enter and leave over the decades in their own regions. Each releases a model per segment every year, built from industry-standard parts, then lowers its price gradually. |
 
 ## Code layout
@@ -103,5 +112,6 @@ Keys: `Space` pause/resume · `1`–`3` game speed · `R` rotate a block in the 
 | `js/sim.js` | Game state, daily tick (research, engineering, production lines, demand & sales), monthly books, rivals, investors, save/load |
 | `js/ui.js` | View router, top bar, toasts, modals, option widgets, charts |
 | `js/device3d.js` | three.js device models for every form factor, with keys, ports, grilles and cameras placed from the layout |
-| `js/phonelab.js`, `js/partlabs.js`, `js/chiplab.js`, `js/views.js` | The screens |
+| `js/phonelab.js`, `js/partlabs.js`, `js/views.js` | The screens |
+| `js/chiplab.js` | The Parts Lab's 💠 Processor designer |
 | `js/main.js` | Start screen, real-time loop, menu, keyboard |
