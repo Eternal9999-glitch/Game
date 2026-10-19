@@ -431,6 +431,7 @@ function frontKeepOut(geo) {
   const z = [];
   if (geo.screenRect) z.push({ name: 'screen', r: geo.screenRect });
   if (geo.keypadRect) z.push({ name: 'keypad', r: geo.keypadRect });
+  if (geo.navRect) z.push({ name: 'home button', r: geo.navRect });
   return z;
 }
 const rectsOverlap = (a, b) => a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1];
@@ -461,6 +462,7 @@ function evalLayout(spec, geo, lay) {
         if (!rectsOverlap(r, z.r)) continue;
         if (z.name === 'screen' && el.t === 'fcam' && ['notch', 'punch', 'udc'].includes(shape)) continue;
         if (z.name === 'screen' && el.t === 'earpiece' && ['notch', 'punch', 'udc', 'slim'].includes(shape) && r[1] + r[3] > z.r[1] + z.r[3] - 2) continue;
+        if (z.name === 'home button' && el.t === 'fp') continue;   // a fingerprint reader in the home button
         errors.push(`${lt.name} overlaps the ${z.name}.`); bad[i] = true;
       }
     }
@@ -512,27 +514,55 @@ function evalLayout(spec, geo, lay) {
 const FILL = [[1973, 0.6], [1990, 0.7], [2005, 0.78], [2015, 0.82], [2040, 0.85]];
 const ELEC_DENSITY = [[1973, 0.62], [1990, 0.9], [2005, 1.3], [2015, 1.5], [2040, 1.6]];
 const BASE_POWER = [[1973, 1.2], [1983, 0.45], [1990, 0.18], [1996, 0.1], [2005, 0.07], [2015, 0.06], [2040, 0.05]];
+// How thick designers of each era let a body get before they make it taller instead (mm; for flips the
+// keypad half), and how tall it may get. Forms without an entry use their fixed maxT/maxH.
+const FORM_FIT = {
+  candybar: { t: [[1991, 30], [1996, 26], [2000, 22], [2005, 17], [2009, 13], [2013, 11]], h: [[1991, 190], [1995, 160], [2000, 135], [2010, 125]] },
+  flip:     { t: [[1989, 24], [1996, 13], [2002, 13], [2004, 9], [2009, 8]], h: [[1989, 135], [1996, 110], [2002, 100], [2004, 115], [2010, 112]] },
+  qwerty:   { t: [[2002, 20], [2006, 16], [2009, 14], [2012, 11]], h: [[2002, 125], [2008, 118]] },
+  slider:   { t: [[2004, 21], [2007, 17], [2010, 14]], h: [[2004, 110], [2010, 115]] },
+};
+function formFit(form, t, G) {
+  const f = FORM_FIT[form];
+  return f ? { maxT: interp(f.t, t), maxH: interp(f.h, t) } : { maxT: G.maxT, maxH: G.maxH };
+}
 // fit a body around `internal` cm³: grow thickness up to maxT, then height up to maxH, then thickness again
-function fitBody(W, H0, internal, stackT, G, fill) {
+function fitBody(W, H0, internal, stackT, G, fill, fit) {
+  const maxT = fit ? fit.maxT : G.maxT, maxH = fit ? fit.maxH : G.maxH;
   const T0 = internal * 1000 / (W * H0 * fill) + stackT;
-  if (T0 <= G.maxT) return [H0, Math.max(G.minT, T0)];
-  const Hg = internal * 1000 / (W * Math.max(1, G.maxT - stackT) * fill);
-  if (!G.maxH || Hg <= G.maxH) return [Math.max(H0, Hg), G.maxT];
-  return [Math.max(H0, G.maxH), internal * 1000 / (W * G.maxH * fill) + stackT];
+  if (T0 <= maxT) return [H0, Math.max(G.minT, T0)];
+  const Hg = internal * 1000 / (W * Math.max(1, maxT - stackT) * fill);
+  if (!maxH || Hg <= maxH) return [Math.max(H0, Hg), maxT];
+  return [Math.max(H0, maxH), internal * 1000 / (W * maxH * fill) + stackT];
 }
 function camsList(spec) {
   const c = spec.cams || {};
   return ['main', 'ultra', 'tele', 'front'].filter(k => c[k]).map(k => [k, c[k]]);
 }
-function shapeBezels(shape, geoForm) {
+// classic touch-phone bezels shrank every year (mm above/below the screen, and at the sides)
+const TOUCH_BEZEL = [[2007, 18], [2010, 17], [2013, 15], [2016, 12.5], [2019, 10], [2023, 9]];
+const TOUCH_SIDE = [[2007, 4.5], [2012, 4], [2016, 3.2], [2020, 2.6]];
+function shapeBezels(shape, geoForm, t, form) {
+  const b = form === 'touch' && t ? interp(TOUCH_BEZEL, t) : null;
+  const side = b ? interp(TOUCH_SIDE, t) : geoForm.side, fore = b || geoForm.fore, chin = b || geoForm.chin;
   switch (shape) {
     case 'slim': return [2.2, 6, 6];
     case 'notch': return [2, 3.5, 5];
     case 'punch': return [1.8, 3, 4];
     case 'udc': return [1.6, 2.5, 3.2];
-    case 'curved': return [0.9, geoForm.fore * 0.8, geoForm.chin * 0.8];
+    case 'curved': return [0.9, fore * 0.8, chin * 0.8];
   }
-  return [geoForm.side, geoForm.fore, geoForm.chin];
+  return [side, fore, chin];
+}
+// home button and navigation keys of a touch phone. 'auto' is what an engineer of the era would fit.
+function navOf(spec, t, form, shape) {
+  if (form !== 'touch' && form !== 'slate') return { home: 'none', keys: 'none', chin: 0 };
+  const n = spec.nav || {};
+  let home = NAV_HOME[n.home] ? n.home : 'auto', keys = NAV_KEYS[n.keys] ? n.keys : 'auto';
+  if (home === 'auto') home = shape === 'bezel' && form === 'touch' && t >= techMarket('nav_home') ? 'physical' : 'none';
+  if (keys === 'auto') keys = home !== 'none' ? 'none' : t >= techMarket('nav_gesture') ? 'gesture' : t >= techMarket('nav_onscreen') ? 'onscreen' : t >= techMarket('nav_capkeys') ? 'capacitive' : 'onscreen';
+  if (home === 'none' && keys === 'none') keys = 'onscreen';
+  return { home, keys, chin: Math.max(NAV_HOME[home].chin, NAV_KEYS[keys].chin) };
 }
 // Everything the UI and sim need to know about a design at time t.
 // chip: stats of a vendor or custom chip.
@@ -584,48 +614,61 @@ function evalPhone(spec, t, chip) {
   const dStack = disp.none ? 0.8 : disp.stack;
   const shellT = mat.wall + 0.6;
   const nav = F.kp && !disp.none && !disp.seg ? 10 : 0;
-  let W, H, T, Hface, screenRect = null, keypadRect = null, openH = 0, stackUsed = dStack + shellT;
+  let W, H, T, Hface, screenRect = null, keypadRect = null, openH = 0, stackUsed = dStack + shellT, lidT = 0;
   // custom body size (mm, 0 = fit the parts): a wider or taller body spreads the same parts thinner,
   // extra thickness leaves spare room, and keypads grow with the body
   const sz = spec.size || {}, wantW = +sz.w || 0, wantH = +sz.h || 0, wantT = +sz.t || 0;
-  let kpW = G.kpW, kpH = G.kpH + nav, autoW, autoH;
+  // where the player dragged the screen and keypad (mm from their default spots, +y = up). Moving one
+  // towards an edge shrinks that margin down to a minimum; pushing them into each other grows the body.
+  const pl = spec.place || {}, sx = +pl.sx || 0, sy = +pl.sy || 0, kx = +pl.kx || 0, ky = +pl.ky || 0;
+  const navk = navOf(spec, t, form, shape);
+  let kpW = G.kpW, kpH = G.kpH + nav, autoW, autoH, foreP = G.fore, chinP = 0;
   const growKeys = (W0, H0) => {
     if (!F.kp) return;
     kpW = Math.min(G.kpW * 1.35, G.kpW + 0.7 * Math.max(0, W - W0));
     kpH = Math.min((G.kpH + nav) * 1.3, G.kpH + nav + 0.4 * Math.max(0, H - H0));
   };
+  const fit = formFit(form, t, G);
   if (form === 'car' || form === 'bag') {
     autoW = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
-    autoH = G.fore + mh + 6 + kpH + G.chin;
+    foreP = Math.max(4, G.fore - sy); chinP = Math.max(3, G.chin + 2 + ky);
+    autoH = Math.max(G.fore + mh + 6 + kpH + G.chin, foreP + mh + 2 + kpH + chinP);
     W = Math.max(autoW, wantW); H = Math.max(autoH, wantH);
     growKeys(autoW, autoH);
     T = G.minT;
   } else if (form === 'brick' || form === 'candybar' || form === 'qwerty' || form === 'slider') {
     const sliderBody = form === 'slider';
     autoW = Math.max(G.minW, mw + 2 * G.side, (sliderBody ? 0 : kpW) + 2 * G.side);
-    const H0 = sliderBody ? G.fore + mh + G.chin + 4 : G.fore + mh + 5 + kpH + G.chin;
+    foreP = Math.max(3, G.fore - sy);
+    let H0;
+    if (sliderBody) { chinP = Math.max(2, G.chin + 4 + sy); H0 = Math.max(G.fore + mh + G.chin + 4, foreP + mh + chinP); }
+    else { chinP = Math.max(2, G.chin + 2 + ky); H0 = Math.max(G.fore + mh + 5 + kpH + G.chin, foreP + mh + 1.5 + kpH + chinP); }
     W = Math.max(autoW, wantW);
     const stackT = Math.max(dStack, F.kp ? 2.5 : 0) + shellT + (sliderBody ? 3.5 : 0);
-    [autoH] = fitBody(autoW, H0, internal, stackT, G, fill);
-    [H, T] = fitBody(W, Math.max(H0, wantH), internal, stackT, G, fill);
+    [autoH] = fitBody(autoW, H0, internal, stackT, G, fill, fit);
+    [H, T] = fitBody(W, Math.max(H0, wantH), internal, stackT, G, fill, fit);
     if (!sliderBody) growKeys(autoW, Math.max(H0, autoH));
     stackUsed = stackT;
   } else if (form === 'flip') {
     autoW = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
     W = Math.max(autoW, wantW);
-    const Hmin = Math.max(G.fore + mh + 6, kpH + G.chin + 8);
-    const base = internal * 0.75, lid = internal * 0.25;
-    [autoH] = fitBody(autoW, Hmin, base, 2 + shellT, G, fill);
-    const [H0, Tb] = fitBody(W, Math.max(Hmin, wantH), base, 2 + shellT, G, fill);
-    const Tl = lid * 1000 / (W * H0 * fill) + dStack + shellT;
-    H = H0; T = Math.max(G.minT, Tb + Tl); openH = H0 * 2;
+    foreP = Math.max(3, G.fore - sy); chinP = Math.max(2, G.chin + 4 + ky);
+    const Hmin = Math.max(G.fore + mh + 6, kpH + G.chin + 8, foreP + mh + 3, chinP + kpH + 3);
+    // the lid holds the display, the earpiece and a little electronics; the keypad half the rest
+    const lid = Math.min(internal * 0.25, 1.5 + internal * 0.08), base = internal - lid;
+    [autoH] = fitBody(autoW, Hmin, base, 2 + shellT, G, fill, fit);
+    const [H0, Tb] = fitBody(W, Math.max(Hmin, wantH), base, 2 + shellT, G, fill, fit);
+    lidT = lid * 1000 / (W * H0 * fill) + dStack + shellT;
+    H = H0; T = Math.max(G.minT, Tb + lidT); openH = H0 * 2;
     growKeys(autoW, autoH);
     stackUsed = 2 + shellT + dStack + shellT;
   } else {
-    const [side, fore, chin] = shapeBezels(shape, G);
-    const homeBtn = shape === 'bezel' && form === 'touch' ? 4 : 0;
+    const [side, fore, chin] = shapeBezels(shape, G, t, form);
+    // a home button or navigation keys need a chin; the screen can be moved up (bigger chin) or down
+    const dy = form === 'fold' ? 0 : sy;
+    foreP = Math.max(1.2, fore - dy); chinP = Math.max(1.2, navk.chin, Math.max(chin, navk.chin) + dy);
     autoW = Math.max(form === 'fold' ? 0 : 40, disp.w + 2 * side);
-    autoH = disp.h + fore + chin + homeBtn;
+    autoH = disp.h + foreP + chinP;
     H = Math.max(autoH, wantH);
     if (form === 'fold') {
       const Wopen = Math.max(autoW, wantW * 2 - 2.4);
@@ -649,14 +692,21 @@ function evalPhone(spec, t, chip) {
   // camera bump
   const inside = T - dStack - shellT + 1.0;
   const bump = Math.max(0, camZ - inside);
-  // screen and keypad rectangles on the front face (mm, origin bottom-left)
+  // screen and keypad rectangles on the front face (mm, origin bottom-left); sideways only as far as they fit
   Hface = form === 'flip' ? openH : H;
+  const placeX = (w, dx, m) => clamp((W - w) / 2 + dx, m, Math.max(m, W - w - m));
   if (!disp.none) {
-    if (form === 'flip') screenRect = [(W - mw) / 2, openH - G.fore - mh, mw, mh];
-    else if (isKeypadForm(form) || form === 'car' || form === 'bag') screenRect = [(W - mw) / 2, H - G.fore - mh, mw, mh];
-    else { const [, fore] = shapeBezels(shape, G); screenRect = [(W - disp.w) / 2, H - fore - disp.h, disp.w, disp.h]; }
+    if (form === 'flip') screenRect = [placeX(mw, sx, 1.5), openH - foreP - mh, mw, mh];
+    else if (isKeypadForm(form) || form === 'car' || form === 'bag') screenRect = [placeX(mw, sx, 1.5), H - foreP - mh, mw, mh];
+    else screenRect = [form === 'fold' ? (W - disp.w) / 2 : placeX(disp.w, sx, 0.6), H - foreP - disp.h, disp.w, disp.h];
   }
-  if (F.kp && form !== 'slider') keypadRect = form === 'flip' ? [(W - kpW) / 2, G.chin + 4, kpW, kpH] : [(W - kpW) / 2, G.chin + 2, kpW, kpH];
+  if (F.kp && form !== 'slider') keypadRect = [placeX(kpW, kx, 1.5), chinP, kpW, kpH];
+  // the home button / navigation keys sit centred in the chin of a touch phone
+  let navRect = null;
+  if (screenRect && (navk.home !== 'none' || ['capacitive', 'physical'].includes(navk.keys))) {
+    const cy = screenRect[1] / 2;
+    navRect = navk.keys === 'capacitive' || navk.keys === 'physical' ? [W * 0.1, cy - 2.6, W * 0.8, 5.2] : [W / 2 - 5.5, cy - 5.5, 11, 11];
+  }
   // ---- weight (g) ----
   const surf = 2 * W * H + 2 * (W + H) * T;                 // mm²
   const shellW = surf / 100 * (mat.wall / 10) * mat.dens;
@@ -714,7 +764,7 @@ function evalPhone(spec, t, chip) {
     const n = ds.length, d = Math.max(...ds);
     return n === 1 ? [d, d] : n === 2 ? [d, d * 2 + 1] : [d * 2 + 1, d * 2 + 1];
   })() : null;
-  const geo = { W, H, T, Hface, screenRect, keypadRect, camBox, antD: radio && radio.ext ? (radio.antLen > 100 ? 9 : 8) : 8, openH, kp: !!F.kp };
+  const geo = { W, H, T, Hface, screenRect, keypadRect, navRect, camBox, antD: radio && radio.ext ? (radio.antLen > 100 ? 9 : 8) : 8, openH, kp: !!F.kp };
   const resolved = resolveLayout(spec, geo);
   const lay = evalLayout(spec, geo, resolved);
   for (const e of lay.errors) issues.push(e);
@@ -792,7 +842,7 @@ function evalPhone(spec, t, chip) {
   };
   return {
     raw, bench, costs, tier, issues: [...new Set(issues)], notes, sustain, thermBudget, avgPower, hours, chipPower,
-    geom: { form, W, H, T, Hface, openH, bump, camZ, stb, screenRect, keypadRect, camBox, footprint, volume, unitVol, unitWeight, handset, antD: geo.antD },
+    geom: { form, W, H, T, Hface, openH, lidT, bump, camZ, stb, screenRect, keypadRect, navRect, nav: navk, camBox, footprint, volume, unitVol, unitWeight, handset, antD: geo.antD },
     weight: totalWeight, handsetWeight: weight, volume, thick: T,
     parts: { disp, cams: camStats, bat, mem, radio }, integrated, needDsp, coverage, netSpeed: raw.speed, gen: liveGen,
     layout: lay, lay: resolved, elecVol: elec, internal, res: disp.res, dims: { w: W, h: H, t: T },

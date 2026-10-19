@@ -99,7 +99,7 @@ const PAS = {
 // electronics volume shrinks with every integration step (cm³ multipliers)
 const INTEGRATION = [
   ['int_discrete', 1.0, 'Discrete transistors'], ['int_hybrid', 0.6, 'Thick-film hybrids'], ['int_lsi', 0.55, 'LSI logic'], ['int_vlsi', 0.5, 'VLSI chipsets'],
-  ['int_smt', 0.5, 'Surface-mount boards'], ['int_asic', 0.55, 'Custom ASICs'], ['int_rfic', 0.55, 'RF integrated circuits'], ['int_csp', 0.6, 'Chip-scale packages'],
+  ['int_smt', 0.5, 'Surface-mount boards'], ['int_asic', 0.4, 'Custom ASICs'], ['int_rfic', 0.5, 'RF integrated circuits'], ['int_csp', 0.88, 'Chip-scale packages'],
   ['int_hdi', 0.65, 'HDI microvia boards'], ['int_pop', 0.7, 'Package-on-package'], ['int_anylayer', 0.8, 'Any-layer HDI'], ['int_slp', 0.8, 'Substrate-like PCB'],
   ['int_sip', 0.85, 'System-in-package'],
 ];
@@ -196,11 +196,11 @@ const FORMS = {
     appeal: [[1983.7, 1.12], [1988, 1.06], [1992, 0.72], [1996, 0.32], [2002, 0.05], [2040, 0.01]],
     desc: 'The first true handheld cellphone: a long brick with a whip antenna.' },
   candybar: { name: 'Candybar', icon: '▮', tech: 'form_candybar', kp: 'num', cost: 0, labor: 0,
-    geo: { minW: 44, fore: 18, chin: 10, side: 4, maxT: 30, minT: 11, maxH: 190, kpW: 42, kpH: 50 },
+    geo: { minW: 44, fore: 15, chin: 10, side: 4, maxT: 30, minT: 11, maxH: 190, kpW: 42, kpH: 47 },
     appeal: [[1991.5, 1.05], [1996, 1.06], [2000, 0.97], [2005, 0.86], [2008, 0.62], [2012, 0.35], [2040, 0.25]],
     desc: 'Classic bar phone with a number pad below the screen.' },
   flip: { name: 'Flip phone', icon: '◫', tech: 'form_flip', kp: 'num', cost: 3, labor: 2, hinge: true,
-    geo: { minW: 44, fore: 12, chin: 8, side: 4, maxT: 15, minT: 7, maxH: 160, kpW: 42, kpH: 48 },
+    geo: { minW: 44, fore: 12, chin: 8, side: 5.5, maxT: 15, minT: 7, maxH: 160, kpW: 42, kpH: 48 },
     appeal: [[1989.3, 1.06], [1996, 1.1], [2004, 1.12], [2006, 1.05], [2008, 0.75], [2012, 0.4], [2040, 0.25]],
     desc: 'Clamshell that folds shut. Big screen for its size; the hinge adds cost.' },
   qwerty: { name: 'QWERTY messenger', icon: '⌨', tech: 'form_qwerty', kp: 'qwerty', cost: 4, labor: 1,
@@ -530,6 +530,20 @@ const FINGERPRINT = {
   ud:   { name: 'Under-display (optical)', pts: 9, cost: 12, tech: 'feat_fpud' },
   us:   { name: 'Under-display (ultrasonic)', pts: 10, cost: 16, tech: 'feat_fpus' },
 };
+// touch phones: a home button and/or navigation keys below the screen. chin: mm of bezel they need,
+// disp: how much of the screen stays usable (an on-screen bar eats some)
+const NAV_HOME = {
+  none:       { name: 'No home button', tech: null, chin: 0, cost: 0, pts: 0 },
+  physical:   { name: 'Physical home button', tech: 'nav_home', chin: 14, cost: 0.8, pts: 1.5 },
+  capacitive: { name: 'Solid-state home button', tech: 'nav_caphome', chin: 13, cost: 2, pts: 2 },
+};
+const NAV_KEYS = {
+  none:       { name: 'None (home button only)', tech: null, chin: 0, cost: 0, pts: 0, disp: 1, design: 1 },
+  physical:   { name: 'Physical keys', tech: 'nav_physkeys', chin: 9, cost: 0.8, pts: 1, disp: 1, design: 0.99 },
+  capacitive: { name: 'Capacitive keys', tech: 'nav_capkeys', chin: 7.5, cost: 0.4, pts: 1.2, disp: 1, design: 1 },
+  onscreen:   { name: 'On-screen navigation bar', tech: 'nav_onscreen', chin: 0, cost: 0, pts: 1, disp: 0.96, design: 1 },
+  gesture:    { name: 'Gesture navigation', tech: 'nav_gesture', chin: 0, cost: 0, pts: 1.5, disp: 1, design: 1.005 },
+};
 // on/off extras: [key, tech, label, points, cost($), vol(cm³)]
 const EXTRAS = [
   ['phonebook', 'feat_phonebook', 'Phonebook memory', 3, 1, 0],
@@ -845,13 +859,13 @@ T('port_edge', 'design', 'Edge connectors', 1983.7, 0.4, 25, 'A multi-pin connec
 T('form_bag', 'design', 'Transportable bag phones', 1984.5, 1, 60, 'Radio and a big battery in a shoulder bag.', [], { reqAny: ['net_amps', 'net_nmt'] });
 T('int_smt', 'design', 'Surface-mount boards', 1987, 1, 60, 'Parts soldered onto the board surface: −50%.', ['int_vlsi']);
 T('form_flip', 'design', 'Flip phones', 1989.3, 1.2, 70, 'A hinged flap – later a full clamshell – folds the phone in half.', ['form_brick']);
-T('int_asic', 'design', 'Custom ASICs', 1990, 1, 60, 'Application-specific chips: −45%.', ['int_smt']);
+T('int_asic', 'design', 'Custom ASICs', 1989, 1, 60, 'Application-specific chips: −60%. Pocketable flip phones arrive.', ['int_smt']);
 T('form_candybar', 'design', 'Pocket candybar phones', 1991.5, 1.2, 70, 'A slim bar that fits in a pocket.', ['int_smt']);
 T('sim_full', 'design', 'SIM cards', 1991.5, 0.6, 40, 'Your number on a smart card: swap phones freely (GSM).', ['net_gsm']);
-T('int_rfic', 'design', 'RF integrated circuits', 1993, 1.1, 60, 'Radio transceivers on silicon: −45%.', ['int_asic']);
+T('int_rfic', 'design', 'RF integrated circuits', 1993, 1.1, 60, 'Radio transceivers on silicon: −50%.', ['int_asic']);
 T('jack_25', 'design', '2.5 mm headset jack', 1995, 0.4, 25, 'Plug in a hands-free headset.');
 T('sim_mini', 'design', 'Mini-SIM', 1996, 0.5, 30, 'Stamp-sized SIM cards.', ['sim_full']);
-T('int_csp', 'design', 'Chip-scale packages', 1997, 1, 60, 'Packages barely bigger than the die: −40%.', ['int_rfic']);
+T('int_csp', 'design', 'Chip-scale packages', 1997, 1, 60, 'Packages barely bigger than the die: −12%, and lighter boards.', ['int_rfic']);
 T('body_mg', 'design', 'Magnesium alloy bodies', 1999, 0.9, 50, 'Light, stiff metal shells.');
 T('int_hdi', 'design', 'HDI microvia boards', 2002, 1, 60, 'Laser-drilled microvias: −35%.', ['int_csp']);
 T('form_qwerty', 'design', 'QWERTY messengers', 2002.5, 1, 60, 'A full thumb keyboard for email addicts.', ['form_candybar']);
@@ -902,6 +916,12 @@ T('feat_wifi', 'features', 'Wi-Fi', 2006, 0.8, 45, 'Fast internet at home and in
 T('os_touch', 'features', 'Touch-first OS', 2007.5, 3, 120, 'An OS built for fingers, with an app store.', ['os_smart', 'disp_capacitive']);
 T('feat_gps', 'features', 'GPS', 2007.5, 0.8, 45, 'Turn-by-turn navigation.');
 T('feat_accel', 'features', 'Motion sensors', 2007.5, 0.6, 35, 'Accelerometer and gyro: auto-rotate, games.');
+T('nav_home', 'features', 'Home button', 2007, 0.5, 30, 'One round button below the screen takes you home.', ['form_touch']);
+T('nav_physkeys', 'features', 'Physical navigation keys', 2008.8, 0.4, 25, 'Home, back and menu keys you can press below the screen.', ['form_touch']);
+T('nav_capkeys', 'features', 'Capacitive navigation keys', 2009.8, 0.5, 30, 'Touch-sensitive back/home/menu keys printed under the glass.', ['nav_physkeys']);
+T('nav_onscreen', 'features', 'On-screen navigation bar', 2011.9, 0.6, 35, 'Navigation keys drawn on the display: no chin needed, but they eat screen space.', ['os_touch']);
+T('nav_caphome', 'features', 'Solid-state home button', 2016.7, 0.6, 35, 'A pressure-sensing home button with a haptic click: no moving parts, easier to waterproof.', ['nav_home', 'feat_haptic']);
+T('nav_gesture', 'features', 'Gesture navigation', 2017.7, 0.8, 45, 'Swipe from the edges instead of pressing keys: the whole front can be screen.', ['nav_onscreen']);
 T('feat_nfc', 'features', 'NFC payments', 2011, 0.8, 45, 'Tap-to-pay radio.');
 T('feat_stylus', 'features', 'Stylus input', 2011.8, 0.8, 45, 'A pen that lives in the phone.', ['disp_capacitive']);
 T('os_modern', 'features', 'Modern mobile OS', 2013, 2, 100, 'Polished, secure, cloud-synced.', ['os_touch']);
