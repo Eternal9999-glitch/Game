@@ -22,6 +22,9 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
      front, key style (classic, round, flush pad, bubble), corner roundness, edge profile and **size**. Make the body wider or taller
      and the same parts spread thinner (keypads grow too); make it thicker for spare room, then fill it with a bigger battery.
      Bigger bodies weigh more and score lower on design, but shed more heat.
+   - **✨ Add-ons** (Features tab): ~30 researched extras – notification LED, scroll wheel, trackball, push-to-talk and shutter keys,
+     IR blaster, flashlight, kickstand, TV tuner, dual SIM, alert slider, privacy switch, heart-rate and UV sensors, pico projector,
+     e-ink or selfie back display, light strips, gaming triggers… Each adds cost, room and weight, and feature points if it fits the phone.
    - **📐 Layout** unfolds the body into front, back and four edges. Drag the earpiece, mic, speakers, power and volume keys, ports,
      headphone jack, SIM tray, card slot, cameras, flash, fingerprint sensor, antenna, logo and optional keys anywhere they fit.
    - Ergonomics are scored: thumb reach, the mouth-to-ear distance between mic and earpiece, cameras your palm covers,

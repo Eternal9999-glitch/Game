@@ -633,6 +633,22 @@ function buildDeviceInner(spec, ev) {
         });
         break;
       }
+      default: {          // add-ons: keys, ports, sensors, panels
+        const lt = LAYOUT_TYPES[el.t] || {};
+        if (lt.button) add(slabGeo(w, h, 0.07, Math.min(w, h) * 0.45, 'round'), el.t === 'sos' ? new THREE.MeshStandardMaterial({ color: 0xd8382f, roughness: 0.4 }) : btnMat, 0.03);
+        else if (lt.port) add(planeGeo(w, h, Math.min(w, h) * 0.45), holeMat(), 0.004);
+        else if (['solar', 'eink', 'backscreen', 'glyph'].includes(el.t)) {
+          const m = el.t === 'glyph' ? new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.55, transparent: true, opacity: 0.22 })
+            : new THREE.MeshStandardMaterial({ color: { solar: 0x1b2c5e, eink: 0xd6d6cc, backscreen: 0x07080c }[el.t], roughness: el.t === 'eink' ? 0.95 : 0.15, metalness: el.t === 'solar' ? 0.45 : 0.05 });
+          add(planeGeo(w, h, Math.min(w, h) * 0.08), m, 0.004);
+        } else if (el.t === 'kickstand') add(slabGeo(w, h, 0.04, h * 0.45, 'round'), btnMat, 0.02);
+        else if (el.t === 'tvant') { const a = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.18, w * 0.18, 0.3, 10), new THREE.MeshStandardMaterial({ color: 0xc0c4cc, metalness: 1, roughness: 0.25 })); a.rotation.x = Math.PI / 2; a.position.z = 0.15; grp.add(a); }
+        else {
+          const col = el.t === 'trackball' ? 0x9aa3b5 : el.t === 'torch' ? 0xfff6dd : el.t === 'trackpad' ? 0x2a2f3a : 0x0b0d12;
+          add(new THREE.CircleGeometry(Math.max(0.03, Math.min(w, h) * 0.45), 18), new THREE.MeshStandardMaterial({ color: col, roughness: 0.25, metalness: 0.3, emissive: el.t === 'torch' ? 0x332a10 : 0x000000 }), 0.006);
+        }
+        break;
+      }
     }
     return [grp, w, h];
   };

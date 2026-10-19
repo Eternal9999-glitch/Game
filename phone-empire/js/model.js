@@ -236,7 +236,7 @@ const CHIP_PREMIUM = [[1973, 0.02], [1990, 0.03], [2000, 0.05], [2007, 0.075], [
 const TIER_PREMIUM = { flagship: 1, mid: 0.6, budget: 0.3 };
 function vendorChipPrice(chip, t) {
   const e = chipEconomics(chip.area, chip.nm, t);
-  const silicon = (e.waferPrice / e.good) * 1.5 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1);
+  const silicon = (e.waferPrice / e.good) * 1.25 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1);
   const rel = clamp(chip.cpu / Math.max(1e-12, frontierCpu(t)), 0, 1);
   const premium = interp(CHIP_PREMIUM, t) * segBudget('phone', 'premium', t) * TIER_PREMIUM[chip.tier] * Math.pow(rel, 1.4);
   return (silicon + premium) * eventMul('soc', t);

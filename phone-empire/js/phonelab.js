@@ -36,6 +36,8 @@ function stdPartOk(type, p, role, d) {
 }
 function sanitizeDraft(d) {
   const av = playerAv(), t = now();
+  // older drafts kept add-ons only as layout parts
+  if (!d.addons) { d.addons = {}; for (const e of d.layout || []) if (LEGACY_ADDONS.includes(e.t)) d.addons[e.t] = true; }
   const blank = blankSpec(d.cat);
   for (const k in blank) if (d[k] == null) d[k] = clone(blank[k]);
   for (const k of ['body', 'style', 'cams', 'feat', 'size']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
@@ -225,14 +227,13 @@ const PhoneLab = {
   layout(d, pc) {
     const ev = pc.ev, lay = ev.lay;
     const sel = lay.find(e => e.t === this.sel);
-    const opt = OPTIONAL_LAYOUT.filter(t => !d.layout.some(e => e.t === t));
     return `<div class="tiny dim mb-s">Drag anything onto any face it fits. Front, back and the four edges are unfolded below. Red = doesn't fit.</div>
       <div class="net-wrap" id="netWrap"></div>
       <div class="row wrap mt-s">
         <button class="btn sm" data-act="autolayout" title="Let your engineers place everything">✨ Auto-arrange</button>
-        ${opt.map(t => `<button class="btn sm" data-addel="${t}">+ ${LAYOUT_TYPES[t].name}</button>`).join('')}
+        <span class="tiny faint">Add keys, sensors and other extras under ✨ Features → Add-ons.</span>
       </div>
-      ${sel ? `<div class="card sub mt"><div class="row between"><b>${LAYOUT_TYPES[sel.t].name}</b>${OPTIONAL_LAYOUT.includes(sel.t) ? `<button class="btn sm danger" data-delel="${sel.t}">Remove</button>` : ''}</div>
+      ${sel ? `<div class="card sub mt"><div class="row between"><b>${LAYOUT_TYPES[sel.t].name}</b>${ADDONS[sel.t] ? `<button class="btn sm danger" data-delel="${sel.t}">Remove</button>` : ''}</div>
         <div class="tiny dim">${LAYOUT_TYPES[sel.t].desc}</div>
         <div class="tiny faint mt-s">On the <b>${sel.f}</b> face · allowed: ${LAYOUT_TYPES[sel.t].faces.join(', ')}</div>
         <label class="chk small mt-s"><input type="checkbox" id="elAuto" ${d.layout.find(e => e.t === sel.t).auto !== false ? 'checked' : ''}> Let engineers place it automatically</label></div>` : '<div class="tiny faint mt">Click an element to see where it works best.</div>'}
@@ -326,11 +327,25 @@ const PhoneLab = {
     return `<div class="note mt-s">💠 <b>Your own chip?</b> Vendors charge for performance: ${esc(f.name)} costs ${fmtMoney(vendorChipPrice(f, t))}, but the same silicon would cost you about ${fmtMoney(e.foundry)} from a foundry.
       Design one in the 🛠️ Parts Lab → 💠 Processor (tape-out about ${fmtMoney(tapeOutCost(f.nm, f.area))}). The 🧠 Chip design research track only affects chips you design yourself.</div>`;
   },
+  // researched optional hardware: keys, sensors, lights, panels…
+  addonCards(d) {
+    const t = now(), ctx = addonCtx(d), on = d.addons || {};
+    const keys = Object.keys(ADDONS).sort((a, b) => TECH[ADDONS[a].tech].market - TECH[ADDONS[b].tech].market);
+    const shown = keys.filter(k => on[k] || t >= TECH[ADDONS[k].tech].market - 6);
+    return `<h3>Add-ons <span class="faint">${keys.filter(k => on[k]).length} fitted</span></h3>
+      <div class="tiny faint mb-s">Extra keys, sensors and gadgets. Each one adds cost, room and weight – and feature points if the phone can use it. Placeable ones show up in 📐 Layout.</div>
+      <div class="ocards" style="--cols:2">${shown.map(k => {
+        const A = ADDONS[k], why = addonProblem(k, ctx);
+        const cost = A.cost * decl(0.08, techMarket(A.tech), t, 0.3);
+        return toggleCard('addons.' + k, A.name, `${esc(A.desc)} · ${fmtMoney(cost)}${A.design && A.design < 1 ? ' · looks clunky' : A.design > 1 ? ' · looks great' : ''}`, A.tech, !!on[k], on[k] ? null : why);
+      }).join('')}</div>`;
+  },
   features(d) {
     const touch = (partParams(d.display) || {}).touch && partParams(d.display).touch !== 'none';
     return `<h3>Software</h3>${optCards('os', OS_ORDER.map(k => ({ v: k, title: OS[k].name, sub: (OS[k].needsTouch && !touch ? 'Needs a touchscreen to shine. ' : '') + (OS[k].fee ? `License ${fmtMoney(OS[k].fee)}/unit` : 'No license fee'), tech: OS[k].tech })), d.os)}
       ${S.researched.os_own ? '<div class="note good mt-s">You use your own OS: no license fees.</div>' : ''}
       <h3>Biometrics</h3>${optCards('feat.fp', Object.entries(FINGERPRINT).map(([k, f]) => ({ v: k, title: f.name, tech: f.tech })), d.feat.fp)}
+      ${this.addonCards(d)}
       <h3>Extras</h3>${EXTRAS.map(([k, id, label]) => toggleCard('feat.' + k, label, TECH[id] ? TECH[id].desc : '', id, !!d.feat[k])).join('')}`;
   },
 
@@ -595,7 +610,7 @@ const PhoneLab = {
     return `<div class="card">
         <h2>Buyer scores <span class="sub">100 = today's flagship · ▮ rivals</span></h2>
         ${scoreBars(rv.subs, rv.avgSubs)}
-        <div class="row between mt"><span class="dim small">${SEG_INFO[rv.seg].name} quality</span><b>${rv.q.toFixed(0)}</b></div>
+        <div class="row between mt"><span class="dim small">${SEG_INFO[rv.seg].name} quality</span><b>${(typeof rv.q === 'number' ? rv.q : rv.q[rv.seg]).toFixed(0)}</b></div>
       </div>
       <div class="card"><h2>Forecast</h2><div class="spec-list">
         <span class="k">Expected review</span><span class="v">${reviewTag(rv.score)}</span>
@@ -663,7 +678,7 @@ const PhoneLab = {
       const add = e.target.closest('[data-addel]');
       if (add) { const [f, u, v] = defaultPlacement(add.dataset.addel, d()); d().layout.push({ t: add.dataset.addel, f, u, v, auto: true }); this.sel = add.dataset.addel; changed(); return; }
       const del = e.target.closest('[data-delel]');
-      if (del) { d().layout = d().layout.filter(x => x.t !== del.dataset.delel); this.sel = null; changed(); return; }
+      if (del) { d().layout = d().layout.filter(x => x.t !== del.dataset.delel); if (d().addons) d().addons[del.dataset.delel] = false; this.sel = null; changed(); return; }
       const own = e.target.closest('[data-own]');
       if (own) { const [type, id] = own.dataset.own.split(':'); this.setPart(type, null, { src: 'own', id }); changed(); return; }
       const pick = e.target.closest('[data-pick]');

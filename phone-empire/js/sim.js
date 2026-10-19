@@ -83,6 +83,7 @@ function specTechList(spec) {
   const feat = spec.feat || {};
   add([(FINGERPRINT[feat.fp] || FINGERPRINT.none).tech, OS[spec.os].tech, (FLASHES[spec.flash] || FLASHES.none).tech], 'features');
   for (const [key, id] of EXTRAS) if (feat[key]) add([id], 'features');
+  for (const k of addonKeys(spec)) add([ADDONS[k].tech], 'features');
   const refs = [['display', spec.display], ['battery', spec.battery], ['memory', spec.memory], ['radio', spec.radio]];
   for (const [k, ref] of camsList(spec)) refs.push(['camera:' + k, ref]);
   for (const [type, ref] of refs) {
