@@ -879,10 +879,10 @@ function evalPhone(spec, t, chip) {
     camScore *= ispF * (chip && chip.tops > 0 ? 1 + Math.min(0.12, chip.tops / 200) : 1) * (chip && chip.media ? 1.03 : 1);
   }
   const raw = {
-    cpu: perfCpu, gpu: perfGpu, ai: chip ? chip.tops : 0, ram: mem.ramMB, stor: mem.speed,
-    cam: camScore, disp: disp.score * (0.45 + 0.55 * (disp.none ? 0 : sizeScore(form, dp.size, t))), dispSize: dp ? dp.size : 0,
-    hours, charge: bat ? bat.chargeMin : null, car: form === 'car',
-    speed: cov.speed * sig, gen: liveGen, sig,
+    cpu: perfCpu, gpu: perfGpu, ai: chip ? chip.tops : 0, ram: mem.ramMB, stor: mem.speed * refineMul('memory', spec, t),
+    cam: camScore * refineMul('camera', spec, t), disp: disp.score * (0.45 + 0.55 * (disp.none ? 0 : sizeScore(form, dp.size, t))) * refineMul('display', spec, t), dispSize: dp ? dp.size : 0,
+    hours: hours == null ? hours : hours * refineMul('battery', spec, t), charge: bat ? bat.chargeMin : null, car: form === 'car',
+    speed: cov.speed * sig * refineMul('network', spec, t), gen: liveGen, sig,
     weight: totalWeight, vol: volume, style, form,
     feat: pts,
   };
@@ -1034,12 +1034,30 @@ function bestForm(ok, t) {
   }
   return best;
 }
+// ---- refinements: researched improvements to each part type (coatings, calibration, touch sampling,
+// video modes, stabilisation, battery management, RF front-ends…). Every phone gets one once it is
+// industry standard; researching it earlier puts it in your phones first.
+const REFINE = {
+  display: ['disp_oleo', 'disp_calib', 'disp_t120', 'disp_sapphire', 'disp_aod', 'disp_alusil3', 'disp_t240', 'disp_dc', 'disp_t480', 'disp_coe', 'disp_ceramic2', 'disp_ar'],
+  camera: ['cam_v720', 'cam_v1080', 'cam_v4k', 'cam_coat', 'cam_varap', 'cam_tof', 'cam_macro', 'cam_v8k', 'cam_gimbal', 'cam_apaf', 'cam_spectral', 'cam_cz'],
+  battery: ['bat_shaped', 'bat_bms', 'bat_bypass', 'bat_graphene', 'bat_multitab'],
+  memory: ['mem_dpd', 'mem_hpb', 'mem_mcp', 'mem_pop', 'mem_wb'],
+  network: ['rf_div', 'rf_tuner', 'rf_fem', 'rf_ai'],
+};
+const REFINE_GAIN = { display: 0.02, camera: 0.025, battery: 0.025, memory: 0.02, network: 0.02 };
+function refineMul(cat, spec, t) {
+  let n = 0;
+  const mine = !spec.npc && typeof S !== 'undefined' && S && S.researched;
+  for (const id of REFINE[cat]) { const tc = TECH[id]; if (tc && (t >= tc.market || (mine && S.researched[id]))) n++; }
+  return 1 + REFINE_GAIN[cat] * n;
+}
 function flagshipSpec(cat, t) {
   const av = marketAv(t);
   const ok = cat === 'tablet' ? (id => id === 'form_tablet' || av.ok(id)) : av.ok;
   const s = buildSpec(cat, t, ok, cat === 'tablet' ? 'slate' : bestForm(ok, t), 3, t < 1991 ? ['na'] : ['eu']);
   s.chip = { kind: 'vendor', id: flagshipChip(t).id };
   s.price = segBudget(cat, 'ultra', t);
+  s.npc = true;
   return s;
 }
 // what a rival ships in a segment
@@ -1055,6 +1073,7 @@ function rivalSpec(cat, seg, t, rival, ok, regions) {
   }
   const s = buildSpec(cat, t, ok, form, lvl, regions);
   s.chip = { kind: 'vendor', id: vendorChipFor(seg, t).id };
+  s.npc = true;
   return s;
 }
 
