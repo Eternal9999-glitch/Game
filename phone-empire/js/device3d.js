@@ -855,8 +855,8 @@ function buildDeviceInner(spec, ev) {
   }
 
   if (form === 'flip') {
-    // base (keypad half) below the hinge, lid (screen half) above; T split between them
-    const Tb = T * 0.56, Tl = T * 0.44;
+    // base (keypad half) below the hinge, lid (screen half) above; T split between them as the model fitted it
+    const Tl = clamp(g.lidT ? g.lidT * MM : T * 0.44, T * 0.25, T * 0.6), Tb = T - Tl;
     const base = new THREE.Group(), pivot = new THREE.Group(), lid = new THREE.Group();
     const bm = slab(W, H, Tb, bodyMat); bm.position.y = -H / 2; base.add(bm);
     const hingeR = Math.min(Tb * 0.5, 0.6);
@@ -885,13 +885,15 @@ function buildDeviceInner(spec, ev) {
         place(base, fr, el, obj, w, h);
       }
     }
-    // back face = lid outer surface
+    // back face = lid outer surface, laid out the way you see it with the phone closed: hinge at the top.
+    // (Closing turns the lid over, so in lid coordinates v runs from the far end down to the hinge.)
     addBackPanel(lid, W, H, -Tl, 0, H / 2);
-    const backC = new THREE.Vector3(0, H / 2, -Tl / 2);
-    addElements(lid, { back: faceFrame('back', W, H, Tl, backC) });
+    const lidQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, -1)));
+    const lidOut = (u, v) => ({ pos: new THREE.Vector3((u - 0.5) * W, (1 - v) * H, -Tl), n: new THREE.Vector3(0, 0, -1), q: lidQ.clone() });
+    addElements(lid, { back: lidOut });
     if (disp.color && !lay.some(e => e.t === 'cam' && e.f === 'back' && e.v < 0.75 && e.v > 0.4)) {
       const os = screenMesh(W * 0.42, W * 0.3, 0.1, 'outer');
-      os.position.set(0, H * 0.55, -Tl - 0.004); os.rotation.y = Math.PI; lid.add(os);
+      os.position.set(0, H * 0.45, -Tl - 0.004); os.rotation.x = Math.PI; lid.add(os);
     }
     // edges on the base (closed phone: top = hinge end)
     addElements(base, { top: faceFrame('top', W, H, Tb, new THREE.Vector3(0, -H / 2, 0)), bottom: faceFrame('bottom', W, H, Tb, new THREE.Vector3(0, -H / 2, 0)),
