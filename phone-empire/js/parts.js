@@ -420,8 +420,8 @@ function cameraRaw(p, t, role) {
     // cost
     const st = techMarket(s.tech);
     // the newest sensor sizes, resolutions, lens stacks and apertures carry launch premiums (added up)
-    const prem = 1 + (levelPrem('camArea', A, t, 1.5, 1.5) - 1) + (levelPrem('mp', mp, t, 1.0, 1.5) - 1) + (levelPrem('lens', el, t, 1.0, 1.5) - 1) + (levelPrem('light', 1 / (N * N), t, 1.2, 1.5) - 1);
-    const sensor = (Math.pow(A, 1.3) * 0.35 * s.cost * learn(2001, t, 0.88, 0.8, 0.1) * earlyMul(st, t) + mp * 0.45 * learn(2001, t, 0.82, 1, 0.02)) * prem;
+    const prem = 1 + (levelPrem('camArea', A, t, 0.5, 1.5) - 1) + (levelPrem('mp', mp, t, 0.35, 1.5) - 1) + (levelPrem('lens', el, t, 0.3, 1.5) - 1) + (levelPrem('light', 1 / (N * N), t, 0.4, 1.5) - 1);
+    const sensor = (Math.pow(A, 1.15) * 0.2 * s.cost * learn(2001, t, 0.88, 0.8, 0.1) * earlyMul(st, t) + mp * 0.45 * learn(2001, t, 0.82, 1, 0.02)) * prem;
     const lens = el * 0.55 * learn(2002, t, 0.92, 0.5, 0.4) * Math.pow(2.8 / N, 2) * Math.pow(diag / 5, 0.9) * prem;
     const extra = af.cost * decl(0.08, techMarket(af.tech), t, 0.3) + ois.cost * decl(0.1, techMarket(ois.tech), t, 0.35)
       + (p.periscope ? 10 * decl(0.1, 2019.2, t, 0.4) : 0) + 1.5 * decl(0.05, 2001, t, 0.5);
@@ -430,7 +430,7 @@ function cameraRaw(p, t, role) {
     const weight = 0.6 + A * 0.04 + el * 0.12 + (ois.z ? 0.4 : 0) + (p.periscope ? 2 : 0);
     const footprint = p.periscope ? [diag + 4, diag + 14] : [diag + 3.5, diag + 3.5];
     return { A, diag, pitch, effMP, light, dr, z, zoom, score, cost, power, weight, footprint, binned, airy, blur, spot, fReal, rules: cameraRules(p, role) };
-  });
+  })();
 }
 function stdCamera(role, t, ok, lvl, sizeLimit) {
   if (!ok('cam_cmos') || !ok(CAM_ROLES[role].tech)) return null;
@@ -449,10 +449,12 @@ function stdCamera(role, t, ok, lvl, sizeLimit) {
     if (m >= 40 && !bin) return;
     if (Math.sqrt(area / m) >= (bin && m >= 40 ? 0.62 : 1.0) && (role === 'main' || m <= 16 || t > 2021)) mp = Math.max(mp, m);
   });
-  if (lvl === 0 && role === 'main') mp = CAM_MP[Math.max(0, CAM_MP.indexOf(mp) - 1)];
-  const lens = Math.max(1, ladderCap(LENS_CAPS, ok) - (lvl >= 2 ? 0 : 1));
+  // only a flagship's main camera gets the newest (and priciest) levels; everything else stays a step behind
+  const top = lvl === 3 && role === 'main';
+  if (!top) mp = CAM_MP[Math.max(0, CAM_MP.indexOf(mp) - (lvl === 0 && role === 'main' ? 2 : 1))];
+  const lens = Math.max(1, ladderCap(LENS_CAPS, ok) - (top ? 0 : 1) - (lvl <= 1 ? 1 : 0));
   const apOk = APERTURES.filter((a, i) => ok(APERTURE_TECH[i]));
-  const ap = apOk[Math.max(0, apOk.length - 1 - (lvl >= 2 ? 0 : 1) - (role === 'main' ? 0 : 1))];
+  const ap = apOk[Math.max(0, apOk.length - 1 - (top ? 0 : 1) - (lvl <= 1 ? 1 : 0))];
   const afOrder = CAM_AF_ORDER.filter(k => ok(CAM_AF[k].tech) && k !== 'laser');
   const af = role === 'front' ? (afOrder.length > 2 && lvl >= 2 ? afOrder[1] : 'fixed') : afOrder[Math.max(0, afOrder.length - 1 - (lvl >= 2 ? 0 : 1))];
   const ois = role === 'main' && lvl >= 2 ? (ok('cam_shift') && lvl === 3 ? 'shift' : ok('cam_ois') ? 'lens' : 'none') : role === 'tele' && ok('cam_ois') ? 'lens' : 'none';
