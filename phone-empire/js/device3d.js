@@ -485,9 +485,13 @@ function buildDeviceInner(spec, ev) {
   const bodyMat = bodyMaterial(spec.body.mat, spec.color, fin);
   if (fin === 'brushed' && /alu|mg|ti/.test(spec.body.mat)) { bodyMat.roughnessMap = brushedMap(); }
   const backMat = backPanelMaterial(spec.body.mat, spec.color, fin);
-  const keyLight = lum(spec.color) > 0.55;
-  const keyMat = new THREE.MeshStandardMaterial({ color: keyLight ? 0xeef0f3 : 0x2b2f38, roughness: 0.42, metalness: 0.05 });
-  const btnMat = bodyMaterial(spec.body.mat === 'plastic' ? 'plastic' : 'alu', spec.color, 'gloss');
+  // accent: buttons, camera island and (optionally) keys in a second color
+  const accent = style.accent || null, keyTone = style.keyTone || 'auto';
+  const keyLight = keyTone === 'light' ? true : keyTone === 'dark' ? false : keyTone === 'accent' && accent ? lum(accent) > 0.55 : lum(spec.color) > 0.55;
+  const keyMat = new THREE.MeshStandardMaterial({ color: keyTone === 'accent' && accent ? accent : keyLight ? 0xeef0f3 : 0x2b2f38, roughness: 0.42, metalness: 0.05 });
+  const btnMat = bodyMaterial(spec.body.mat === 'plastic' ? 'plastic' : 'alu', accent || spec.color, 'gloss');
+  const frontWhite = style.front === 'white';
+  const frontGlass = () => frontWhite ? new THREE.MeshPhysicalMaterial({ color: 0xeceef2, roughness: 0.08, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03 }) : darkGlass();
   const cornerR = (w, h) => lerp(Math.min(w, h) * 0.05, Math.min(w, h) * 0.24, clamp(style.radius == null ? 0.5 : style.radius, 0, 1));
   const lay = ev.lay || [];
   const sizeOf = el => layoutSize(el, spec, g).map(v => v * MM);
@@ -607,7 +611,7 @@ function buildDeviceInner(spec, ev) {
         const n = cams.length;
         let isl = style.island || 'auto';
         if (isl === 'auto') isl = n === 1 ? (touch ? 'square' : 'none') : 'square';
-        const isMat = backMat || bodyMat;
+        const isMat = accent ? btnMat : backMat || bodyMat;
         if (isl === 'square') add(slabGeo(w, h, bump, Math.min(w, h) * 0.28, 'round'), isMat, bump / 2);
         else if (isl === 'circle') { const c = add(new THREE.CylinderGeometry(Math.max(w, h) * 0.55, Math.max(w, h) * 0.56, bump, 40), isMat, bump / 2); c.rotation.x = Math.PI / 2; }
         else if (isl === 'bar') add(slabGeo(Math.min(W * 0.92, w * (n > 1 ? 1.9 : 1.3)), h * (n > 1 ? 0.62 : 1), bump, h * 0.25, 'round'), isMat, bump / 2);
@@ -680,13 +684,17 @@ function buildDeviceInner(spec, ev) {
     const atlas = labelAtlas([...new Set(keys.map(k => k.l).filter(Boolean))], keyLight ? '#2a2d33' : '#e9edf5');
     const idx = {}; [...new Set(keys.map(k => k.l).filter(Boolean))].forEach((l, i) => { idx[l] = i; });
     const labMat = new THREE.MeshBasicMaterial({ map: atlas.tex, transparent: true });
-    const kd = 0.07;
+    // key styles: classic rounded keys, round buttons, a flush (gapless, flat) pad, or pillowy bubble keys
+    const ks = style.keys || 'classic';
+    const kd = ks === 'flush' ? 0.025 : ks === 'bubble' ? 0.11 : 0.07;
     for (const k of keys) {
       const w = k.w * MM, h = k.h * MM;
       const mat = k.c ? new THREE.MeshStandardMaterial({ color: k.c, roughness: 0.4 }) : keyMat;
-      const geo = k.round ? new THREE.CylinderGeometry(w / 2, w / 2, kd, 28) : slabGeo(w, h, kd, Math.min(w, h) * 0.35, 'round');
+      const disc = k.round || (ks === 'round' && k.l);
+      const kw = ks === 'flush' ? w * 1.18 : w, kh = ks === 'flush' ? h * 1.25 : h, rr = k.round ? w / 2 : Math.min(w, h) / 2;
+      const geo = disc ? new THREE.CylinderGeometry(rr, rr, kd, 28) : slabGeo(kw, kh, kd, Math.min(kw, kh) * (ks === 'bubble' ? 0.5 : ks === 'flush' ? 0.12 : 0.35), 'round');
       const m = new THREE.Mesh(geo, mat);
-      if (k.round) m.rotation.x = Math.PI / 2;
+      if (disc) m.rotation.x = Math.PI / 2;
       m.position.set(toX(k.x), toY(k.y), z + kd / 2);
       parent.add(m);
       if (k.round) {
@@ -720,7 +728,7 @@ function buildDeviceInner(spec, ev) {
       pm.position.set(cx, cy, z + 0.004); parent.add(pm);
       return;
     }
-    const bez = new THREE.Mesh(planeGeo(rw * MM, rh * MM, Math.min(rw, rh) * MM * 0.12), new THREE.MeshPhysicalMaterial({ color: 0x0b0c10, roughness: 0.15, metalness: 0.2, clearcoat: 1 }));
+    const bez = new THREE.Mesh(planeGeo(rw * MM, rh * MM, Math.min(rw, rh) * MM * 0.12), new THREE.MeshPhysicalMaterial({ color: frontWhite ? 0xe9ebef : 0x0b0c10, roughness: 0.15, metalness: 0.2, clearcoat: 1 }));
     bez.position.set(cx, cy, z + 0.003); parent.add(bez);
     const sw = Math.max(4, disp.w || rw - 4) * MM, sh = Math.max(2, disp.h || rh - 4) * MM;
     const sm = screenMesh(sw, sh, 0.04, kind, { chars: disp.res ? disp.res[0] : 7, backlit: dp.bl !== 'none' || DISP_EMIT[dp.emit].emissive, cstn: dp.matrix === 'passive' });
@@ -729,7 +737,7 @@ function buildDeviceInner(spec, ev) {
   // glass front + screen for touch devices
   const addTouchFront = (parent, Wc, Hc, z, rectMm, Wmm, Hmm) => {
     const r = cornerR(Wc, Hc);
-    const front = new THREE.Mesh(planeGeo(Wc * 0.985, Hc * 0.99, r * 0.95), darkGlass());
+    const front = new THREE.Mesh(planeGeo(Wc * 0.985, Hc * 0.99, r * 0.95), frontGlass());
     front.position.z = z + 0.002; parent.add(front);
     if (!rectMm) return;
     const [rx, ry, rw, rh] = rectMm;
@@ -932,7 +940,7 @@ function buildDeviceInner(spec, ev) {
       m.position.set(cx, 0, 0.006); parent.add(m);
     };
     for (const [par, sx] of [[base, -1], [lid, 1]]) {
-      const fg = new THREE.Mesh(planeGeo(W * 0.99, H * 0.99, cornerR(W, H) * 0.7), darkGlass());
+      const fg = new THREE.Mesh(planeGeo(W * 0.99, H * 0.99, cornerR(W, H) * 0.7), frontGlass());
       fg.position.set(sx * W / 2, 0, 0.002); par.add(fg);
     }
     half(0, base, -sw / 4 - 0.01);

@@ -948,7 +948,7 @@ const TECH_CATS = {
   camera:   { name: 'Cameras', icon: '📷', factory: 'camera', note: 'Before it is standard, needs your own Camera Module Plant.' },
   battery:  { name: 'Batteries', icon: '🔋', factory: 'battery', note: 'Before it is standard, needs your own Battery Plant.' },
   memory:   { name: 'Memory', icon: '💾', factory: 'memory', note: 'Before it is standard, needs your own Memory Fab.' },
-  chip:     { name: 'Chip design', icon: '🧠', factory: null, note: 'Unlocks chip blocks and CPU architectures for your own SoCs.' },
+  chip:     { name: 'Chip design', icon: '🧠', factory: null, note: 'Chip blocks and CPU architectures for SoCs you design in the 💠 Chip Lab. Vendor chips come with the vendor\'s own architecture, so this only matters for your own chips – which skip the vendor\'s markup.' },
   process:  { name: 'Process nodes', icon: '💠', factory: 'fab', note: 'Design chips at a node; build a fab there early.' },
   design:   { name: 'Design & body', icon: '🧩', factory: 'assembly', note: 'Before it is standard, needs your own Assembly Plant.' },
   features: { name: 'Features & software', icon: '✨', factory: 'assembly', note: 'Before it is standard, needs your own Assembly Plant.' },

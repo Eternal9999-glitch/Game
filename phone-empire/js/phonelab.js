@@ -38,7 +38,7 @@ function sanitizeDraft(d) {
   const av = playerAv(), t = now();
   const blank = blankSpec(d.cat);
   for (const k in blank) if (d[k] == null) d[k] = clone(blank[k]);
-  for (const k of ['body', 'style', 'cams', 'feat']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
+  for (const k of ['body', 'style', 'cams', 'feat', 'size']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
   if (d.cat === 'tablet') d.form = 'slate';
   else if (!FORMS[d.form] || d.form === 'slate' || !av.ok(FORMS[d.form].tech)) d.form = bestForm(av.std, t);
   const f = formOf(d);
@@ -204,9 +204,17 @@ const PhoneLab = {
       <h3>Finish</h3>${optCards('body.finish', finOpts, d.body.finish)}
       <h3>Color</h3><div class="row wrap">${BODY_COLORS.map(c => `<button class="swatch-btn ${c === d.color ? 'on' : ''}" data-color="${c}" style="background:${c}" title="${c}"></button>`).join('')}
         <label class="tiny dim row" style="gap:4px">Custom <input type="color" id="colorPick" value="${esc(d.color)}"></label></div>
+      <h3>Accent color</h3><div class="tiny faint mb-s">Buttons, camera island${isKeypadForm(formOf(d)) ? ' and (optionally) keys' : ''} in a second color.</div>
+      <div class="row wrap"><button class="swatch-btn none ${!d.style.accent ? 'on' : ''}" data-accent="" title="Same as the body">✕</button>${BODY_COLORS.map(c => `<button class="swatch-btn ${c === d.style.accent ? 'on' : ''}" data-accent="${c}" style="background:${c}" title="${c}"></button>`).join('')}
+        <label class="tiny dim row" style="gap:4px">Custom <input type="color" id="accentPick" value="${esc(d.style.accent || d.color)}"></label></div>
+      <h3>Front panel</h3>${segBtn('front', [{ v: 'black', label: '⬛ Black' }, { v: 'white', label: '⬜ White' }], d.style.front || 'black')}
+      ${isKeypadForm(formOf(d)) || ['car', 'bag'].includes(formOf(d)) ? `<h3>Keys</h3>
+        ${segBtn('keys', [{ v: 'classic', label: 'Classic' }, { v: 'round', label: 'Round' }, { v: 'flush', label: 'Flush pad' }, { v: 'bubble', label: 'Bubble' }], d.style.keys || 'classic')}
+        <div class="mt-s">${segBtn('keytone', [{ v: 'auto', label: 'Auto' }, { v: 'light', label: 'Light keys' }, { v: 'dark', label: 'Dark keys' }, { v: 'accent', label: 'Accent' }], d.style.keyTone || 'auto')}</div>` : ''}
       <h3>Shape</h3>
       ${capSlider('style.radius', 'Corner roundness', 0, 1, 0.05, d.style.radius, v => Math.round(v * 100) + '%')}
       ${segBtn('edge', [{ v: 'round', label: 'Rounded edges' }, { v: 'flat', label: 'Flat sides' }, { v: 'chamfer', label: 'Chamfered' }], d.style.edge)}
+      <h3>Size</h3>${this.sizeCtl(d, pc)}
       <h3>Water resistance</h3>${optCards('body.water', Object.entries(WATER).map(([k, w]) => ({ v: k, title: w.name, tech: w.tech })), d.body.water)}
       <h3>Board integration</h3>
       <select id="intSel" class="full">${ints.map(x => `<option value="${x.i}" ${x.i === d.int ? 'selected' : ''}>${x.name}${x.id !== 'int_discrete' && !av.market(x.id) ? ' ◆' : ''}</option>`).join('')}</select>
@@ -271,6 +279,23 @@ const PhoneLab = {
       ${d.cams.main ? `<h3>Flash</h3>${optCards('flash', Object.entries(FLASHES).map(([k, f]) => ({ v: k, title: f.name, tech: f.tech })), d.flash)}` : ''}
       <div class="tiny faint mt-s">Supplier modules use standard lenses. Design your own in the 🛠️ Parts Lab: bigger apertures, more lens elements, sensor-shift stabilization, exclusive sensors.</div>`;
   },
+  // body size sliders: the minimum is what the parts need; anything above is your call
+  sizeCtl(d, pc) {
+    const ev = pc.ev, z = ev.sizing, g = ev.geom, hand = !!FORMS[formOf(d)].handset, sz = d.size || {};
+    const sl = (k, label, min, max, cur) => `<div class="cap"><div class="row between"><span class="dim small">${label}</span><b class="mono" data-show="size.${k}">${sz[k] ? cur.toFixed(1) + ' mm' : 'auto · ' + cur.toFixed(1) + ' mm'}</b></div>
+      <input type="range" data-path="size.${k}" data-num min="${min.toFixed(1)}" max="${max.toFixed(1)}" step="0.5" value="${Math.max(min, sz[k] || min).toFixed(1)}">
+      <div class="row between tiny faint"><span>fits the parts</span><span>+${(max - min).toFixed(0)} mm</span></div></div>`;
+    const bat = d.battery && d.battery.src === 'std' ? partParams(d.battery) : null, st = bat ? evalBattery(bat, now()) : null;
+    const addMah = st ? Math.floor(z.spareVol * (st.wh / st.volume) * 1000 / VOLTAGE / 50) * 50 : 0;
+    const capMax = bat ? batteryCap(formOf(d), d.cat, playerAv().std) : 0;
+    return `<div class="tiny faint mb-s">The body fits around the parts. Make it wider or taller and the same parts spread thinner${isKeypadForm(formOf(d)) ? ' and the keys grow' : ''}; make it thicker for spare room. Bigger bodies weigh more but shed more heat.</div>
+      ${sl('w', 'Width', z.autoW, z.autoW + 20, g.W)}
+      ${sl('h', 'Height', z.autoH, z.autoH + 40, g.H)}
+      ${hand ? '' : sl('t', 'Thickness', z.fitT, z.fitT + 8, g.T)}
+      <div class="row wrap mt-s">${z.custom ? '<button class="btn sm" data-act="autosize">↺ Fit to parts</button>' : ''}
+        ${!hand && z.spareVol >= 0.5 ? `<span class="tiny dim">Spare room: <b>${z.spareVol.toFixed(1)} cm³</b></span>` : ''}
+        ${addMah >= 50 && bat.mah < capMax ? `<button class="btn sm" data-act="fillbat">🔋 Fill it: +${Math.min(addMah, capMax - bat.mah).toLocaleString('en-US')} mAh</button>` : addMah >= 50 && bat ? '<span class="tiny faint">(battery is at its research limit)</span>' : ''}</div>`;
+  },
   battery(d) {
     if (formOf(d) === 'car') return '<div class="note">Car phones run off the car\'s 12 V battery – no cells needed.</div>';
     return this.partSwitch('battery', d) + (this.mode('battery', d) === 'own' ? this.ownList('battery', d) : this.stdBattery(d));
@@ -293,7 +318,13 @@ const PhoneLab = {
         <div class="row between"><div class="oc-t">${r.custom ? '💠 ' : ''}${esc(r.c.name)}</div><b class="mono">${fmtMoney(r.price)}</b></div>
         <div class="oc-s mono">${nodeLabel(r.c.nm)} · CPU ${fmtSci(r.c.cpu)} · GPU ${r.c.gpu ? fmtSci(r.c.gpu) : '—'}${r.c.tops ? ' · AI ' + r.c.tops.toFixed(1) : ''} · ${r.c.power.toFixed(2)} W${r.c.hasModem ? ' · ' + GEN_LABEL(r.c.modemGen) + ' modem' : ''}${r.c.dsp ? ' · DSP' : ''}</div>
         ${r.custom ? '<span class="oc-ex">your design</span>' : `<span class="tag">${r.c.tier}</span>`}</div>`).join('')}</div>
-      <div class="tiny faint mt-s">Design your own processor in the 💠 Chip Lab – off-the-shelf chips carry a big markup.</div>`;
+      ${this.chipPitch(t)}`;
+  },
+  // what designing your own processor would save, in this year's money
+  chipPitch(t) {
+    const f = flagshipChip(t), e = chipEconomics(f.area, f.nm, t);
+    return `<div class="note mt-s">💠 <b>Your own chip?</b> Vendors charge for performance: ${esc(f.name)} costs ${fmtMoney(vendorChipPrice(f, t))}, but the same silicon would cost you about ${fmtMoney(e.foundry)} from a foundry.
+      Design one in the Chip Lab (tape-out about ${fmtMoney(tapeOutCost({ nm: f.nm, w: Math.sqrt(f.area / CELL_MM2), h: Math.sqrt(f.area / CELL_MM2) }))}). The 🧠 Chip design research track only affects chips you design yourself.</div>`;
   },
   features(d) {
     const touch = (partParams(d.display) || {}).touch && partParams(d.display).touch !== 'none';
@@ -665,12 +696,17 @@ const PhoneLab = {
       if (ch) { const [kind, id] = ch.dataset.chip.split(':'); d().chip = { kind, id }; changed(); return; }
       const col = e.target.closest('[data-color]');
       if (col) { d().color = col.dataset.color; changed(); return; }
+      const acc = e.target.closest('[data-accent]');
+      if (acc) { d().style.accent = acc.dataset.accent; if (!acc.dataset.accent && d().style.keyTone === 'accent') d().style.keyTone = 'auto'; changed(); return; }
       const segB = e.target.closest('.segbtn button');
       if (segB && !segB.disabled) {
         const seg = segB.parentElement.dataset.seg, v = segB.dataset.v;
         if (seg === 'cat' && v !== d().cat) { const keep = { name: d().name, color: d().color }; S.draft = Object.assign(defaultDraft(v, now()), keep); this.tab = 'body'; }
         if (seg === 'edge') d().style.edge = v;
         if (seg === 'island') d().style.island = v;
+        if (seg === 'front') d().style.front = v;
+        if (seg === 'keys') d().style.keys = v;
+        if (seg === 'keytone') { d().style.keyTone = v; if (v === 'accent' && !d().style.accent) d().style.accent = BODY_COLORS[11]; }
         if (seg && seg.startsWith('src-')) {
           const type = seg.slice(4);
           this.partMode[type] = v;
@@ -684,6 +720,13 @@ const PhoneLab = {
       const a = act.dataset.act;
       if (a === 'suggest') { d().price = suggestPrice(d()); changed(); toast(`Suggested price: ${fmtMoney(d().price)}`); }
       if (a === 'autolayout') { d().layout = d().layout.map(x => Object.assign(x, { auto: true })); d().layout.forEach(x => { const [f, u, v] = defaultPlacement(x.t, d()); Object.assign(x, { f, u, v }); }); changed(); }
+      if (a === 'autosize') { d().size = { w: 0, h: 0, t: 0 }; changed(); }
+      if (a === 'fillbat') {
+        const z = productCosts(d(), now(), 'riverside').ev.sizing, p = d().battery.p, st = evalBattery(p, now());
+        const add = Math.floor(z.spareVol * (st.wh / st.volume) * 1000 / VOLTAGE / 50) * 50;
+        p.mah = Math.min(batteryCap(formOf(d()), d().cat, playerAv().std), p.mah + add);
+        changed(); toast(`Battery: ${p.mah.toLocaleString('en-US')} mAh`);
+      }
       if (a === 'reset') { const keep = { color: d().color }; S.draft = Object.assign(defaultDraft(d().cat, now()), keep); changed(); }
       if (a === 'stddisp') { d().display = { src: 'std', p: stdDisplay(formOf(d()), d().cat, now(), playerAv().std, 2) }; changed(); }
       if (a === 'proto') { if (report(buildPrototype(d()))) toast('Prototype on the bench – ready in 14 days.', 'good'); changed(); }
@@ -699,13 +742,14 @@ const PhoneLab = {
     el.oninput = e => {
       const inp = e.target;
       if (inp.id === 'colorPick') { d().color = inp.value; this.light(); return; }
+      if (inp.id === 'accentPick') { d().style.accent = inp.value; this.light(); return; }
       if (!inp.dataset.path) return;
-      const v = inp.dataset.num != null ? Number(inp.value) : inp.value;
+      const v = inputVal(inp);
       const path = inp.dataset.path;
       this.setPathAny(path, v);
       if (inp.type === 'range') {
         const show = $(`[data-show="${path}"]`, el);
-        if (show) show.textContent = path === 'disp.size' ? (+v).toFixed(1) + '"' : path === 'disp.ppi' ? v + ' ppi' : path === 'bat.mah' ? v.toLocaleString('en-US') + ' mAh' : path === 'radio.bands' ? v + ' bands' : path === 'style.radius' ? Math.round(v * 100) + '%' : v;
+        if (show) show.textContent = path.startsWith('size.') ? (v ? v.toFixed(1) + ' mm' : 'auto') : path === 'disp.size' ? (+v).toFixed(1) + '"' : path === 'disp.ppi' ? v + ' ppi' : path === 'bat.mah' ? v.toLocaleString('en-US') + ' mAh' : path === 'radio.bands' ? v + ' bands' : path === 'style.radius' ? Math.round(v * 100) + '%' : v;
         this.light();
       }
     };
@@ -716,7 +760,7 @@ const PhoneLab = {
         if (p) { S.draft = clone(p.spec); S.draft.name = p.name + ' II'; changed(); toast('Loaded ' + p.name + ' as a starting point.'); }
         return;
       }
-      if (inp.id === 'colorPick') { changed(); return; }
+      if (inp.id === 'colorPick' || inp.id === 'accentPick') { changed(); return; }
       if (inp.id === 'intSel') { d().int = +inp.value; changed(); return; }
       if (inp.id === 'aspectSel') { d().display.p.aspect = +inp.value; changed(); return; }
       if (inp.id === 'elAuto') { const rec = d().layout.find(x => x.t === this.sel); if (rec) rec.auto = inp.checked; changed(); return; }
@@ -741,7 +785,7 @@ const PhoneLab = {
       }
       if (inp.dataset.camois) { const p = d().cams[inp.dataset.camois].p; p.ois = inp.checked ? 'lens' : 'none'; changed(); return; }
       if (!inp.dataset.path || inp.type === 'text') return;
-      this.setPathAny(inp.dataset.path, inp.dataset.num != null ? Number(inp.value) : inp.value);
+      this.setPathAny(inp.dataset.path, inputVal(inp));
       changed();
     };
   },
@@ -753,4 +797,10 @@ const PhoneLab = {
     else setPath(d, path, v);
   },
 };
+// a size slider dragged back to its minimum means "fit the parts" again
+function inputVal(inp) {
+  if (inp.dataset.num == null) return inp.value;
+  const v = Number(inp.value);
+  return inp.dataset.path && inp.dataset.path.startsWith('size.') && v <= Number(inp.min) + 0.25 ? 0 : v;
+}
 registerView('phonelab', PhoneLab);

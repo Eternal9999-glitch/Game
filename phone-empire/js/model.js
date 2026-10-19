@@ -240,16 +240,27 @@ const VENDOR_CHIPS = [];
 const VENDOR_BY_ID = Object.fromEntries(VENDOR_CHIPS.map(c => [c.id, c]));
 const vendorChipById = id => VENDOR_BY_ID[id];
 function vendorChipsAvailable(t) { return VENDOR_CHIPS.filter(c => c.release <= t && t < c.release + 3.5); }
+// What a chip vendor charges: the silicon at a modest margin, plus a premium for performance.
+// The newest flagship carries most of that premium (a share of what premium phones sell for);
+// slower and older chips get cheap fast. Your own chips pay only for the silicon.
+const CHIP_PREMIUM = [[1973, 0.02], [1990, 0.03], [2000, 0.05], [2007, 0.075], [2012, 0.09], [2020, 0.1], [2040, 0.1]];
+const TIER_PREMIUM = { flagship: 1, mid: 0.6, budget: 0.3 };
 function vendorChipPrice(chip, t) {
   const e = chipEconomics(chip.area, chip.nm, t);
-  const tierMul = { flagship: 3.2, mid: 2.6, budget: 2.2 }[chip.tier];
-  const ip = { flagship: 16, mid: 10, budget: 6 }[chip.tier] * (t < 1995 ? 0.5 : 1);
-  return ((e.waferPrice / e.good) * tierMul + ip + e.pack) * eventMul('soc', t);
+  const silicon = (e.waferPrice / e.good) * 1.5 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1);
+  const rel = clamp(chip.cpu / Math.max(1e-12, flagshipChip(t).cpu), 0, 1);
+  const premium = interp(CHIP_PREMIUM, t) * segBudget('phone', 'premium', t) * TIER_PREMIUM[chip.tier] * Math.pow(rel, 1.4);
+  return (silicon + premium) * eventMul('soc', t);
 }
+const _flagChip = new Map();
 function flagshipChip(t) {
+  const key = Math.floor(t * 12);
+  if (_flagChip.has(key)) return _flagChip.get(key);
   let best = null;
   for (const c of vendorChipsAvailable(t)) if (c.tier === 'flagship' && (!best || c.cpu > best.cpu)) best = c;
-  return best || vendorChipsAvailable(t)[0] || VENDOR_CHIPS[0];
+  best = best || vendorChipsAvailable(t)[0] || VENDOR_CHIPS[0];
+  _flagChip.set(key, best);
+  return best;
 }
 function vendorChipFor(seg, t) {
   const chips = vendorChipsAvailable(t);
@@ -573,42 +584,68 @@ function evalPhone(spec, t, chip) {
   const dStack = disp.none ? 0.8 : disp.stack;
   const shellT = mat.wall + 0.6;
   const nav = F.kp && !disp.none && !disp.seg ? 10 : 0;
-  let W, H, T, Hface, screenRect = null, keypadRect = null, openH = 0;
-  const kpW = G.kpW, kpH = G.kpH + nav;
+  let W, H, T, Hface, screenRect = null, keypadRect = null, openH = 0, stackUsed = dStack + shellT;
+  // custom body size (mm, 0 = fit the parts): a wider or taller body spreads the same parts thinner,
+  // extra thickness leaves spare room, and keypads grow with the body
+  const sz = spec.size || {}, wantW = +sz.w || 0, wantH = +sz.h || 0, wantT = +sz.t || 0;
+  let kpW = G.kpW, kpH = G.kpH + nav, autoW, autoH;
+  const growKeys = (W0, H0) => {
+    if (!F.kp) return;
+    kpW = Math.min(G.kpW * 1.35, G.kpW + 0.7 * Math.max(0, W - W0));
+    kpH = Math.min((G.kpH + nav) * 1.3, G.kpH + nav + 0.4 * Math.max(0, H - H0));
+  };
   if (form === 'car' || form === 'bag') {
-    W = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
-    H = G.fore + mh + 6 + kpH + G.chin;
+    autoW = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
+    autoH = G.fore + mh + 6 + kpH + G.chin;
+    W = Math.max(autoW, wantW); H = Math.max(autoH, wantH);
+    growKeys(autoW, autoH);
     T = G.minT;
   } else if (form === 'brick' || form === 'candybar' || form === 'qwerty' || form === 'slider') {
     const sliderBody = form === 'slider';
-    W = Math.max(G.minW, mw + 2 * G.side, (sliderBody ? 0 : kpW) + 2 * G.side);
+    autoW = Math.max(G.minW, mw + 2 * G.side, (sliderBody ? 0 : kpW) + 2 * G.side);
     const H0 = sliderBody ? G.fore + mh + G.chin + 4 : G.fore + mh + 5 + kpH + G.chin;
+    W = Math.max(autoW, wantW);
     const stackT = Math.max(dStack, F.kp ? 2.5 : 0) + shellT + (sliderBody ? 3.5 : 0);
-    [H, T] = fitBody(W, H0, internal, stackT, G, fill);
+    [autoH] = fitBody(autoW, H0, internal, stackT, G, fill);
+    [H, T] = fitBody(W, Math.max(H0, wantH), internal, stackT, G, fill);
+    if (!sliderBody) growKeys(autoW, Math.max(H0, autoH));
+    stackUsed = stackT;
   } else if (form === 'flip') {
-    W = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
+    autoW = Math.max(G.minW, mw + 2 * G.side, kpW + 2 * G.side);
+    W = Math.max(autoW, wantW);
     const Hmin = Math.max(G.fore + mh + 6, kpH + G.chin + 8);
     const base = internal * 0.75, lid = internal * 0.25;
-    const [H0, Tb] = fitBody(W, Hmin, base, 2 + shellT, G, fill);
+    [autoH] = fitBody(autoW, Hmin, base, 2 + shellT, G, fill);
+    const [H0, Tb] = fitBody(W, Math.max(Hmin, wantH), base, 2 + shellT, G, fill);
     const Tl = lid * 1000 / (W * H0 * fill) + dStack + shellT;
     H = H0; T = Math.max(G.minT, Tb + Tl); openH = H0 * 2;
+    growKeys(autoW, autoH);
+    stackUsed = 2 + shellT + dStack + shellT;
   } else {
     const [side, fore, chin] = shapeBezels(shape, G);
     const homeBtn = shape === 'bezel' && form === 'touch' ? 4 : 0;
-    W = Math.max(form === 'fold' ? 0 : 40, disp.w + 2 * side);
-    H = disp.h + fore + chin + homeBtn;
+    autoW = Math.max(form === 'fold' ? 0 : 40, disp.w + 2 * side);
+    autoH = disp.h + fore + chin + homeBtn;
+    H = Math.max(autoH, wantH);
     if (form === 'fold') {
-      const Wopen = W;
+      const Wopen = Math.max(autoW, wantW * 2 - 2.4);
       const half = internal * 1000 / (Wopen * H * fill) + dStack + shellT + 0.6;
+      autoW = autoW / 2 + 1.2;
       W = Wopen / 2 + 1.2; T = Math.max(G.minT * 2, 2 * half + 0.4);
+      stackUsed = 2 * (dStack + shellT + 0.6) + 0.4;
     } else {
+      W = Math.max(autoW, wantW);
       T = Math.max(G.minT, internal * 1000 / (W * H * fill) + dStack + shellT);
     }
   }
+  const fitT = T;
+  if (!F.handset && wantT > T) T = wantT;
   // ports & jacks set a minimum thickness
   const port = PORTS[spec.port] || PORTS.barrel, jack = JACKS[spec.jack] || JACKS.none;
   const needT = Math.max(port.minT || 0, jack.minT || 0);
   if (needT > T && !handset) { notes.push(`+${(needT - T).toFixed(1)} mm thicker to fit the ${needT === jack.minT ? jack.name : port.name}`); T = needT; }
+  // room the parts don't use (cm³): a bigger battery would fit without growing the body
+  const spareVol = handset ? 0 : Math.max(0, W * H * Math.max(0, T - stackUsed) * fill / 1000 * (form === 'fold' ? 2 : 1) - internal);
   // camera bump
   const inside = T - dStack - shellT + 1.0;
   const bump = Math.max(0, camZ - inside);
@@ -759,6 +796,7 @@ function evalPhone(spec, t, chip) {
     weight: totalWeight, handsetWeight: weight, volume, thick: T,
     parts: { disp, cams: camStats, bat, mem, radio }, integrated, needDsp, coverage, netSpeed: raw.speed, gen: liveGen,
     layout: lay, lay: resolved, elecVol: elec, internal, res: disp.res, dims: { w: W, h: H, t: T },
+    sizing: { autoW, autoH, fitT, spareVol, custom: !!(wantW || wantH || wantT) },
   };
 }
 
@@ -769,7 +807,8 @@ function blankSpec(cat) {
   return {
     cat, form: cat === 'tablet' ? 'slate' : 'car', name: '', color: BODY_COLORS[0], price: 1999, int: 0,
     body: { mat: 'plastic', water: 'none', finish: 'gloss' },
-    style: { radius: 0.5, edge: 'round', island: 'auto', logo: '' },
+    style: { radius: 0.5, edge: 'round', island: 'auto', logo: '', accent: '', front: 'black', keys: 'classic', keyTone: 'auto' },
+    size: { w: 0, h: 0, t: 0 },
     display: null, cams: { main: null, ultra: null, tele: null, front: null }, flash: 'none',
     battery: null, memory: null, radio: null, chip: { kind: 'vendor', id: '' },
     os: 'none', feat: { fp: 'none' }, port: 'barrel', jack: 'none', sim: 'none', sd: false, layout: [],

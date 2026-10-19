@@ -18,6 +18,10 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
    - 🔬 **Tech Pioneer**: faster, cheaper research, cheaper tooling and tape-outs, bigger licensing royalties.
 2. **📱 Phone Lab**: pick a form factor (car, bag, brick, candybar, flip, QWERTY, slider, touch, foldable, tablet) and every part around a
    live 3D model. Each part is either a **supplier part**, configurable within what suppliers sell, or **one of your own designs**.
+   - **🧩 Body**: form factor, material, finish and color, plus an accent color (buttons, camera island, keys), a black or white
+     front, key style (classic, round, flush pad, bubble), corner roundness, edge profile and **size**. Make the body wider or taller
+     and the same parts spread thinner (keypads grow too); make it thicker for spare room, then fill it with a bigger battery.
+     Bigger bodies weigh more and score lower on design, but shed more heat.
    - **📐 Layout** unfolds the body into front, back and four edges. Drag the earpiece, mic, speakers, power and volume keys, ports,
      headphone jack, SIM tray, card slot, cameras, flash, fingerprint sensor, antenna, logo and optional keys anywhere they fit.
    - Ergonomics are scored: thumb reach, the mouth-to-ear distance between mic and earpiece, cameras your palm covers,
@@ -35,6 +39,9 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
 
    Your designs skip the 45% supplier markup (×1.22 at contract part makers, ×1.0 in your own plant) and can use exclusive tech.
 4. **💠 Chip Lab**: floorplan a SoC on a silicon die, from 10 µm logic in 1973 to 1.4 nm, then tape it out. You can also sell it to rival brands.
+   Vendors price chips by performance: the newest flagship costs about 10% of a premium phone's price (≈$40 in 2007, ≈$190 in 2024),
+   older and slower chips far less. Your own chip costs only its silicon plus a one-off tape-out. The 🧠 Chip design research track
+   (CPU architectures, blocks) only affects chips you design yourself.
 5. **🧪 Prototype → 💼 Investors**: friends & family, then angels (who judge your prototype), then seed, Series A–C and an IPO.
 6. **🚀 Develop & launch**: a production line at a contract manufacturer (or your own plant) builds stock continuously.
    **📦 Production** lets you pick the maker and the output rate.
