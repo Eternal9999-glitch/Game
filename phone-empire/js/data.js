@@ -753,6 +753,7 @@ const LAYOUT_TYPES = {
   fp:       { name: 'Fingerprint sensor', faces: ['back', 'front'], w: 10, h: 10, ideal: { back: [0.5, 0.66], front: [0.5, 0.07] }, desc: 'Where the index finger lands: upper-middle of the back.' },
   antenna:  { name: 'External antenna', faces: ['top'], w: 8, h: 8, ideal: { top: [0.8, 0.5] }, desc: 'Top corner, away from the head and hand.' },
   logo:     { name: 'Logo', faces: ['back', 'front'], w: 24, h: 7, cosmetic: true, ideal: { back: [0.5, 0.42], front: [0.5, 0.97] }, desc: 'Purely cosmetic.' },
+  stamp:    { name: 'Logo stamp', faces: ['back', 'front', 'left', 'right', 'top', 'bottom'], w: 8, h: 8, cosmetic: true, desc: 'Your logo, stamped on the body.' },
   led:      { name: 'Notification LED', faces: ['front', 'top'], w: 2, h: 2, ideal: { front: [0.8, 0.95] }, desc: 'Visible from the front.' },
   ir:       { name: 'Infrared port', faces: ['top'], w: 7, h: 4, ideal: { top: [0.4, 0.5] }, desc: 'Points away from you, at the other device.' },
   camkey:   { name: 'Camera shutter key', faces: ['right'], w: 6, h: 3, button: true, ideal: { right: [0.18, 0.5] }, desc: 'Lower right edge, like a real camera.' },

@@ -394,7 +394,8 @@ function layoutSize(el, spec, geo) {
   if (el.t === 'sim') { const s = SIMS[spec.sim] || SIMS.nano; if (el.f === 'back') { w = s.w ? Math.max(15, s.w * 0.6) : 12; h = s.w ? s.w * 0.45 : 10; } else { w = s.w ? Math.min(s.w, 16) : 10; h = 2.4; } }
   if (el.t === 'cam' && geo && geo.camBox) { w = geo.camBox[0]; h = geo.camBox[1]; }
   if (el.t === 'antenna' && geo) { w = h = geo.antD || 8; }
-  if (el.t === 'logo') { w = Math.min(26, (geo ? geo.W : 60) * 0.4); h = w * 0.28; }
+  if (el.t === 'logo') { w = Math.min(26, (geo ? geo.W : 60) * 0.4); h = w * 0.28; if (artDrawn((spec.art || {}).logo)) w = h = Math.max(6, h * 1.6); }
+  if (el.t === 'stamp') w = h = el.s || 8;
   if (el.t === 'fp' && el.f === 'front') { w = 12; h = 8; }
   if (geo) {
     const W = geo.W, H = geo.H;
@@ -638,6 +639,86 @@ function navOf(spec, t, form, shape) {
   if (home === 'none' && keys === 'none') keys = 'onscreen';
   return { home, keys, chin: Math.max(NAV_HOME[home].chin, NAV_KEYS[keys].chin) };
 }
+// The keys of a keypad in front-face mm (origin bottom-left): id, label, center, size, color – moved and
+// reshaped wherever the player dragged them. `rect` is the keypad area.
+function keypadKeys(spec, rect, form) {
+  if (!rect) return [];
+  const F = FORMS[form] || FORMS.candybar, kind = F.kp === 'qwerty' ? 'qwerty' : 'num';
+  const [rx, ry, rw, rh] = rect, keys = [];
+  if (kind === 'qwerty') {
+    const rows = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'], kw = rw / 10.4, kh = rh / 4.4;
+    rows.forEach((row, ri) => {
+      const off = rx + (rw - row.length * kw) / 2;
+      for (let i = 0; i < row.length; i++) keys.push({ id: 'k' + row[i], x: off + (i + 0.5) * kw, y: ry + rh - (ri + 0.6) * kh, w: kw * 0.82, h: kh * 0.74, l: row[i] });
+    });
+    keys.push({ id: 'space', x: rx + rw / 2, y: ry + kh * 0.45, w: rw * 0.45, h: kh * 0.62, l: '' });
+    keys.push({ id: 'shift', x: rx + rw * 0.12, y: ry + kh * 0.45, w: rw * 0.16, h: kh * 0.62, l: '⇧' });
+    keys.push({ id: 'enter', x: rx + rw * 0.88, y: ry + kh * 0.45, w: rw * 0.16, h: kh * 0.62, l: '↵' });
+  } else {
+    let top = ry + rh;
+    const nav = rh - (F.geo ? F.geo.kpH : rh) > 5;
+    if (nav) {
+      const nh = 10;
+      keys.push({ id: 'softl', x: rx + rw * 0.16, y: top - nh * 0.3, w: rw * 0.24, h: nh * 0.34, l: '' });
+      keys.push({ id: 'softr', x: rx + rw * 0.84, y: top - nh * 0.3, w: rw * 0.24, h: nh * 0.34, l: '' });
+      keys.push({ id: 'call', x: rx + rw * 0.16, y: top - nh * 0.75, w: rw * 0.24, h: nh * 0.32, l: '', c: 0x3fae5a });
+      keys.push({ id: 'hang', x: rx + rw * 0.84, y: top - nh * 0.75, w: rw * 0.24, h: nh * 0.32, l: '', c: 0xd24b4b });
+      keys.push({ id: 'dpad', x: rx + rw / 2, y: top - nh * 0.5, w: nh * 0.86, h: nh * 0.86, l: '', round: true });
+      top -= nh;
+    }
+    const labels = nav ? [] : ['SND', 'CLR', 'END'];
+    labels.push('1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#');
+    const rows = labels.length / 3, ch = (top - ry) / rows, cw = rw / 3;
+    labels.forEach((l, i) => {
+      const c = i % 3, r = Math.floor(i / 3);
+      keys.push({ id: 'k' + ({ '*': 'star', '#': 'hash' }[l] || l), x: rx + (c + 0.5) * cw, y: top - (r + 0.5) * ch, w: cw * 0.78, h: ch * 0.74, l, c: l === 'SND' ? 0x3fae5a : l === 'END' ? 0xd24b4b : null });
+    });
+  }
+  const pos = spec.keyPos || {}, shp = spec.keyShape || {};
+  for (const k of keys) {
+    const o = pos[k.id];
+    if (o) { k.x += o[0]; k.y += o[1]; k.moved = true; }
+    k.shape = shp[k.id] || null;
+  }
+  return keys;
+}
+// a drawn shape (n×n string of 0/1) as closed outlines: [{pts:[[x,y]…], holes:[[…]]}] in 0…1, y up
+function maskOutlines(mask, n) {
+  if (!mask || mask.indexOf('1') < 0) return [];
+  const on = (i, j) => i >= 0 && j >= 0 && i < n && j < n && mask[j * n + i] === '1';
+  const edges = new Map(), key = (a, b) => a + ',' + b;
+  const addE = (x1, y1, x2, y2) => { const r = key(x2, y2) + '>' + key(x1, y1); if (edges.has(r)) edges.delete(r); else edges.set(key(x1, y1) + '>' + key(x2, y2), [x1, y1, x2, y2]); };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    if (!on(i, j)) continue;
+    const x = i, y = n - 1 - j;                              // y up
+    addE(x, y, x + 1, y); addE(x + 1, y, x + 1, y + 1); addE(x + 1, y + 1, x, y + 1); addE(x, y + 1, x, y);
+  }
+  const from = new Map();
+  for (const e of edges.values()) { const k = key(e[0], e[1]); if (!from.has(k)) from.set(k, []); from.get(k).push(e); }
+  const loops = [];
+  while (from.size) {
+    const [k0, list0] = from.entries().next().value;
+    let e = list0.pop(); if (!list0.length) from.delete(k0);
+    const pts = [[e[0], e[1]]];
+    for (let guard = 0; guard < 4 * n * n; guard++) {
+      const k = key(e[2], e[3]), list = from.get(k);
+      if (!list) break;
+      e = list.pop(); if (!list.length) from.delete(k);
+      pts.push([e[0], e[1]]);
+    }
+    // drop points in the middle of straight runs
+    const simp = pts.filter((p, i) => { const a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length]; return (p[0] - a[0]) * (b[1] - p[1]) !== (p[1] - a[1]) * (b[0] - p[0]); });
+    const area = simp.reduce((s, p, i) => { const q = simp[(i + 1) % simp.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
+    if (simp.length >= 3) loops.push({ pts: simp.map(([x, y]) => [x / n, y / n]), area });
+  }
+  const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+  const outer = loops.filter(l => l.area > 0).map(l => ({ pts: l.pts, holes: [] }));
+  for (const h of loops.filter(l => l.area < 0)) { const o = outer.find(ol => inside([h.pts[0][0] + 1e-4, h.pts[0][1] + 1e-4], ol.pts)) || outer[0]; if (o) o.holes.push(h.pts); }
+  return outer;
+}
+const ART_N = { shape: 10, logo: 16 };
+const LOGO_PALETTE = ['', '#ffffff', '#111318', 'accent', '#d4af37', '#c0c6cf', '#e04848', '#3d7bea', '#3fbf6a'];
+const artDrawn = s => !!s && /[1-9]/.test(s);
 // the room a processor takes on the board (cm³) and how tall its package stands (mm): bigger dies need
 // bigger packages, hungrier chips more power delivery around them
 function chipSpace(c) {
@@ -844,6 +925,22 @@ function evalPhone(spec, t, chip) {
     else screenRect = [form === 'fold' ? (W - disp.w) / 2 : placeX(disp.w, sx, 0.6), H - foreP - disp.h, disp.w, disp.h];
   }
   if (F.kp && form !== 'slider') keypadRect = [placeX(kpW, kx, 1.5), chinP, kpW, kpH];
+  // keys the player moved one by one: they must stay on the front (a flip's keys on the keypad half),
+  // off the screen and apart from each other
+  if (keypadRect && spec.keyPos && Object.keys(spec.keyPos).length) {
+    const ks = keypadKeys(spec, keypadRect, form), top = form === 'flip' ? H - 1 : H - 0.5, sr = screenRect;
+    const nm = k => k.l || { softl: 'soft-left', softr: 'soft-right', call: 'call', hang: 'end', dpad: 'navigation', space: 'space' }[k.id] || k.id;
+    const off = ks.find(k => k.x - k.w / 2 < 0.5 || k.x + k.w / 2 > W - 0.5 || k.y - k.h / 2 < 0.5 || k.y + k.h / 2 > top);
+    if (off) issues.push(`The ${nm(off)} key hangs off the ${form === 'flip' ? 'keypad half' : 'front'}.`);
+    let hit = null;
+    for (let i = 0; i < ks.length && !hit; i++) for (let j = i + 1; j < ks.length; j++) {
+      const a = ks[i], b = ks[j];
+      if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 - 0.2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2 - 0.2) { hit = [a, b]; break; }
+    }
+    if (hit) issues.push(`Keys ${nm(hit[0])} and ${nm(hit[1])} overlap.`);
+    const onScr = sr && ks.find(k => Math.abs(k.x - (sr[0] + sr[2] / 2)) < (k.w + sr[2]) / 2 && Math.abs(k.y - (sr[1] + sr[3] / 2)) < (k.h + sr[3]) / 2);
+    if (onScr) issues.push(`The ${nm(onScr)} key sits on the screen.`);
+  }
   // the home button / navigation keys sit centred in the chin of a touch phone
   let navRect = null;
   if (screenRect && (navk.home !== 'none' || ['capacitive', 'physical'].includes(navk.keys))) {
@@ -921,8 +1018,12 @@ function evalPhone(spec, t, chip) {
   const extAnt = radio && radio.ext ? (radio.antLen > 100 ? 0.93 : 0.98) : 1;
   const bumpF = bump > 0 ? Math.max(0.85, 1 - bump * 0.025) : 1;
   const edgeF = spec.style && spec.style.edge === 'round' ? 1.02 : spec.style && spec.style.edge === 'chamfer' ? 1.015 : 1;
+  // your own art: a drawn logo, logo stamps around the body (a few look designed, too many look cluttered), drawn keys
+  const art = spec.art || {}, nStamps = Math.min(8, (spec.stamps || []).length);
+  const drawnKeys = F.kp && [(spec.style || {}).keys].concat(Object.values(spec.keyShape || {})).some(k => /^c\d$/.test(k || '') && artDrawn((art.shapes || [])[+k[1]]));
+  const artF = (artDrawn(art.logo) ? 1.01 : 1) * (1 + 0.012 * Math.min(nStamps, 3) - 0.012 * Math.max(0, nStamps - 4)) * (drawnKeys ? 1.006 : 1);
   const style = mat.q * fin.q * (1 + water.q + bodyUp.water) * lay.score * (0.7 + 0.3 * drop) * Math.pow(Math.max(0.05, stb), 0.35) * extAnt * bumpF * edgeF * addDesign
-    * bodyUp.q * NAV_KEYS[navk.keys].design;
+    * bodyUp.q * NAV_KEYS[navk.keys].design * artF;
   if (bump > 0.5) notes.push(`− ${bump.toFixed(1)} mm camera bump`);
   // ---- performance raw ----
   const pixels = disp.res[0] * disp.res[1];
@@ -952,7 +1053,7 @@ function evalPhone(spec, t, chip) {
   for (const k in camStats) costs.cams[k] = camStats[k].cost;
   const fpOpt = FINGERPRINT[feat.fp] || FINGERPRINT.none;
   let featCost = fpOpt.cost * decl(0.09, techMarket(fpOpt.tech), t, 0.3) + flash.cost * decl(0.08, techMarket(flash.tech), t, 0.3);
-  for (const [key, id, , , cost] of EXTRAS) if (feat[key]) featCost += cost * decl(0.1, techMarket(id), t, 0.3);
+  for (const [key, id, , , cost] of EXTRAS) if (feat[key]) featCost += cost * decl(0.14, techMarket(id), t, 0.12);
   const fp2 = footprint / 7000;
   costs.body = mat.cost * decl(0.03, techMarket(mat.tech), t, 0.6) * earlyMul(techMarket(mat.tech), t) * Math.pow(fp2, 0.7) * (form === 'car' ? 2 : 1)
     + water.cost + fin.cost + F.cost * decl(0.06, F.tech ? techMarket(F.tech) : FIRST_YEAR, t, 0.4) + (F.kp === 'num' ? 3 : F.kp === 'qwerty' ? 6 : 0)
@@ -995,7 +1096,7 @@ function evalPhone(spec, t, chip) {
     geom: { form, W, H, T, Hface, openH, lidT, bump, camZ, stb, screenRect, keypadRect, navRect, nav: navk, camBox, footprint, volume, unitVol, unitWeight, handset, antD: geo.antD },
     weight: totalWeight, handsetWeight: weight, volume, thick: T,
     parts: { disp, cams: camStats, bat, mem, radio }, integrated, needDsp, coverage, netSpeed: raw.speed, gen: liveGen,
-    layout: lay, lay: resolved, elecVol: elec, internal, res: disp.res, dims: { w: W, h: H, t: T },
+    layout: lay, lay: resolved.concat((spec.stamps || []).slice(0, 8).map((st, i) => ({ t: 'stamp', i, f: st.f, u: st.u, v: st.v, s: st.s || 8, auto: false }))), elecVol: elec, internal, res: disp.res, dims: { w: W, h: H, t: T },
     sizing: { autoW, autoH, faceH, fitT, Tabs, tallest, spareVol, short, grewBy, room, custom: !!(wantW || wantH || wantT), want: { w: wantW, h: wantH, t: wantT } },
     space: { battery: batVol, board: handset ? 0 : boardVol, chip: handset ? 0 : chipVol, memory: handset ? 0 : mem.volume, cameras: camVol, other: extraVol, total: internal, room, chipZ, batZ },
     bodyUp,
@@ -1013,6 +1114,7 @@ function blankSpec(cat) {
     style: { radius: 0.5, edge: 'round', island: 'auto', logo: '', accent: '', front: 'black', keys: 'classic', keyTone: 'auto' },
     size: { w: 0, h: 0, t: 0 }, place: { sx: 0, sy: 0, kx: 0, ky: 0 }, nav: { home: 'auto', keys: 'auto' },
     up: { frame: 'none', cooling: 'none', rugged: 'none', texture: 'plain', coating: 'none', framefin: 'match', logostyle: 'print' },
+    art: { shapes: ['', '', ''], logo: '' }, stamps: [], keyPos: {}, keyShape: {},
     display: null, cams: { main: null, ultra: null, tele: null, front: null }, flash: 'none',
     battery: null, memory: null, radio: null, chip: { kind: 'vendor', id: '' },
     os: 'none', feat: { fp: 'none' }, port: 'barrel', jack: 'none', sim: 'none', sd: false, layout: [], addons: {},

@@ -285,6 +285,32 @@ function backPanelMaterial(mat, color, finish) {
   const frosted = finish === 'frosted' || finish === 'matte';
   return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), roughness: frosted ? 0.5 : 0.08, metalness: 0.05, clearcoat: frosted ? 0.3 : 1, clearcoatRoughness: frosted ? 0.4 : 0.03 });
 }
+// a key cap in a shape the player drew (10×10 mask): extruded outline with a soft bevel, centered
+function maskKeyGeo(mask, w, h, depth) {
+  const v = ([x, y]) => new THREE.Vector2((x - 0.5) * w, (y - 0.5) * h);
+  const shapes = maskOutlines(mask, ART_N.shape).map(o => {
+    const sh = new THREE.Shape(o.pts.map(v));
+    for (const hp of o.holes) sh.holes.push(new THREE.Path(hp.map(v)));
+    return sh;
+  });
+  if (!shapes.length) return null;
+  const geo = new THREE.ExtrudeGeometry(shapes, { depth: depth * 0.6, bevelEnabled: true, bevelThickness: depth * 0.2, bevelSize: Math.min(w, h) * 0.03, bevelSegments: 2, curveSegments: 1 });
+  geo.translate(0, 0, -depth / 2);
+  return geo;
+}
+// the player's pixel logo (16×16 palette indices) as a crisp texture
+function logoArtTex(art, accent) {
+  const n = ART_N.logo, sc = 8, cv = makeCanvas(n * sc, n * sc), g = cv.getContext('2d');
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const c = +art[j * n + i] || 0;
+    if (!c) continue;
+    g.fillStyle = LOGO_PALETTE[c] === 'accent' ? accent || '#f08a3c' : LOGO_PALETTE[c];
+    g.fillRect(i * sc, j * sc, sc, sc);
+  }
+  const t = canvasTex(cv);
+  t.magFilter = THREE.NearestFilter;
+  return t;
+}
 // back decorations drawn on a canvas: weaves, leather, wood, fabric, gradients, see-through, color-shift
 function textureMap(kind, color, accent) {
   const cv = makeCanvas(256, 256), g = cv.getContext('2d'), hex = '#' + new THREE.Color(color).getHexString();
@@ -637,13 +663,14 @@ function buildDeviceInner(spec, ev) {
         }
         break;
       }
-      case 'logo': {
+      case 'logo': case 'stamp': {
         const ls = (spec.up || {}).logostyle || 'print', lit = ls === 'glow' || ls === 'badge';
-        const lm = new THREE.MeshBasicMaterial({ map: canvasTex(drawLogo(brandText(spec), lit ? '#000000' : spec.color)), transparent: true });
-        if (ls === 'glow') { lm.color = new THREE.Color('#bfe6ff'); lm.blending = THREE.AdditiveBlending; }
-        if (ls === 'badge') lm.color = new THREE.Color('#e6e9ee');
-        if (ls === 'emboss') lm.opacity = 0.55;
-        add(new THREE.PlaneGeometry(w, w / 4), lm, 0.008);
+        const art = (spec.art || {}).logo, drawn = artDrawn(art);
+        const lm = new THREE.MeshBasicMaterial({ map: drawn ? logoArtTex(art, style.accent) : canvasTex(drawLogo(brandText(spec), lit ? '#000000' : spec.color)), transparent: true });
+        if (ls === 'glow') { if (!drawn) lm.color = new THREE.Color('#bfe6ff'); lm.blending = THREE.AdditiveBlending; }
+        if (ls === 'badge' && !drawn) lm.color = new THREE.Color('#e6e9ee');
+        if (ls === 'emboss') lm.opacity = 0.6;
+        add(new THREE.PlaneGeometry(w, drawn ? h : w / 4), lm, 0.008);
         break;
       }
       case 'led': add(new THREE.CircleGeometry(Math.max(0.05, w * 0.4), 12), new THREE.MeshStandardMaterial({ color: 0x113322, emissive: 0x22ff88, emissiveIntensity: 0.6 }), 0.01); break;
@@ -729,56 +756,31 @@ function buildDeviceInner(spec, ev) {
   // keys inside a rect (mm, front-face coordinates of a body of height Hmm), placed on `parent` at z
   const addKeys = (parent, rect, Wmm, Hmm, z, kind) => {
     if (!rect) return;
-    const [rx, ry, rw, rh] = rect;
     const toX = x => (x - Wmm / 2) * MM, toY = y => (y - Hmm / 2) * MM;
-    const nav = rh - (FORMS[form] ? FORMS[form].geo.kpH : rh) > 5;
-    let keys = [];
-    if (kind === 'qwerty') {
-      const rows = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
-      const kw = rw / 10.4, kh = rh / 4.4;
-      rows.forEach((row, ri) => {
-        const off = rx + (rw - row.length * kw) / 2;
-        for (let i = 0; i < row.length; i++) keys.push({ x: off + (i + 0.5) * kw, y: ry + rh - (ri + 0.6) * kh, w: kw * 0.82, h: kh * 0.74, l: row[i] });
-      });
-      keys.push({ x: rx + rw / 2, y: ry + kh * 0.45, w: rw * 0.45, h: kh * 0.62, l: '' });
-      keys.push({ x: rx + rw * 0.12, y: ry + kh * 0.45, w: rw * 0.16, h: kh * 0.62, l: '⇧' });
-      keys.push({ x: rx + rw * 0.88, y: ry + kh * 0.45, w: rw * 0.16, h: kh * 0.62, l: '↵' });
-    } else {
-      let top = ry + rh;
-      if (nav) {
-        const nh = 10;
-        keys.push({ x: rx + rw * 0.16, y: top - nh * 0.3, w: rw * 0.24, h: nh * 0.34, l: '' });
-        keys.push({ x: rx + rw * 0.84, y: top - nh * 0.3, w: rw * 0.24, h: nh * 0.34, l: '' });
-        keys.push({ x: rx + rw * 0.16, y: top - nh * 0.75, w: rw * 0.24, h: nh * 0.32, l: '', c: 0x3fae5a });
-        keys.push({ x: rx + rw * 0.84, y: top - nh * 0.75, w: rw * 0.24, h: nh * 0.32, l: '', c: 0xd24b4b });
-        keys.push({ x: rx + rw / 2, y: top - nh * 0.5, w: nh * 0.86, h: nh * 0.86, l: '', round: true });
-        top -= nh;
-      }
-      const labels = nav ? [] : ['SND', 'CLR', 'END'];
-      labels.push('1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#');
-      const rows = labels.length / 3, ch = (top - ry) / rows, cw = rw / 3;
-      labels.forEach((l, i) => {
-        const c = i % 3, r = Math.floor(i / 3);
-        keys.push({ x: rx + (c + 0.5) * cw, y: top - (r + 0.5) * ch, w: cw * 0.78, h: ch * 0.74, l, c: l === 'SND' ? 0x3fae5a : l === 'END' ? 0xd24b4b : null });
-      });
-    }
+    // the real keypad uses the player's key positions; other key areas (a slider's hidden pad) the default grid
+    const own = rect === g.keypadRect;
+    const keys = keypadKeys(own ? spec : Object.assign({}, spec, { keyPos: {}, keyShape: {} }), rect, kind === 'qwerty' ? 'qwerty' : form === 'qwerty' ? 'candybar' : form);
     const atlas = labelAtlas([...new Set(keys.map(k => k.l).filter(Boolean))], keyLight ? '#2a2d33' : '#e9edf5');
     const idx = {}; [...new Set(keys.map(k => k.l).filter(Boolean))].forEach((l, i) => { idx[l] = i; });
     const labMat = new THREE.MeshBasicMaterial({ map: atlas.tex, transparent: true });
-    // key styles: classic rounded keys, round buttons, a flush (gapless, flat) pad, or pillowy bubble keys
-    const ks = style.keys || 'classic';
-    const kd = ks === 'flush' ? 0.025 : ks === 'bubble' ? 0.11 : 0.07;
+    // key styles: classic rounded keys, round buttons, a flush (gapless, flat) pad, pillowy bubble keys – or a
+    // shape you drew. Every key can have its own.
+    const shapes = (spec.art || {}).shapes || [];
     for (const k of keys) {
       const w = k.w * MM, h = k.h * MM;
+      let ks = k.shape || style.keys || 'classic';
+      const drawn = /^c\d$/.test(ks) && artDrawn(shapes[+ks[1]]) ? shapes[+ks[1]] : null;
+      if (/^c\d$/.test(ks) && !drawn) ks = 'classic';
+      const kd = ks === 'flush' ? 0.025 : ks === 'bubble' ? 0.11 : 0.07;
       const mat = k.c ? new THREE.MeshStandardMaterial({ color: k.c, roughness: 0.4 }) : keyMat;
-      const disc = k.round || (ks === 'round' && k.l);
-      const kw = ks === 'flush' ? w * 1.18 : w, kh = ks === 'flush' ? h * 1.25 : h, rr = k.round ? w / 2 : Math.min(w, h) / 2;
-      const geo = disc ? new THREE.CylinderGeometry(rr, rr, kd, 28) : slabGeo(kw, kh, kd, Math.min(kw, kh) * (ks === 'bubble' ? 0.5 : ks === 'flush' ? 0.12 : 0.35), 'round');
+      const disc = !drawn && (k.round || (ks === 'round' && k.l));
+      const kw = ks === 'flush' && !k.moved ? w * 1.18 : w, kh = ks === 'flush' && !k.moved ? h * 1.25 : h, rr = k.round ? w / 2 : Math.min(w, h) / 2;
+      const geo = (drawn && maskKeyGeo(drawn, w, h, kd)) || (disc ? new THREE.CylinderGeometry(rr, rr, kd, 28) : slabGeo(kw, kh, kd, Math.min(kw, kh) * (ks === 'bubble' ? 0.5 : ks === 'flush' ? 0.12 : 0.35), 'round'));
       const m = new THREE.Mesh(geo, mat);
       if (disc) m.rotation.x = Math.PI / 2;
       m.position.set(toX(k.x), toY(k.y), z + kd / 2);
       parent.add(m);
-      if (k.round) {
+      if (k.round && !drawn) {
         const dot = new THREE.Mesh(new THREE.CircleGeometry(w * 0.2, 20), new THREE.MeshStandardMaterial({ color: keyLight ? 0xc8ccd3 : 0x15171c, roughness: 0.5 }));
         dot.position.set(toX(k.x), toY(k.y), z + kd + 0.002); parent.add(dot);
       }

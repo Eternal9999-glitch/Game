@@ -755,7 +755,8 @@ function stdRadio(t, ok, lvl, regions, form) {
 //  of models every year (like the chip vendors). A model stays on sale for CATALOG_LIFE years.
 // ============================================================================
 const CATALOG_LIFE = 3;
-const vendorOk = (t, lag) => id => !id || !TECH[id] || TECH[id].market <= t - lag;
+// what a vendor can build at t: tech on the market `lag` years ago (whatever was standard when the game starts, always)
+const vendorOk = (t, lag) => id => !id || !TECH[id] || TECH[id].market <= Math.max(t - lag, FIRST_YEAR);
 const r1 = x => Math.round(x * 10) / 10;
 const memCode = mb => (mb >= 1024 ? Math.round(mb / 1024) + 'G' : mb >= 1 ? Math.round(mb) + 'M' : Math.round(mb * 1024) + 'K');
 // which catalog a part comes from: displays and batteries are made for a form factor, cameras for a role
@@ -839,8 +840,9 @@ function catalogRelease(type, v, key, y) {
   const k = [type, v.id, key, y].join('|');
   let rel = _catRel.get(k);
   if (rel) return rel;
+  // ranges from before the game starts are built with the starting tech, so the shelves aren't empty on day one
   const tr = y + v.month / 12;
-  rel = tr < FIRST_YEAR ? [] : vendorRange(type, v, key, tr).map((m, i) => ({
+  rel = tr < FIRST_YEAR - CATALOG_LIFE ? [] : vendorRange(type, v, key, Math.max(tr, FIRST_YEAR)).map((m, i) => ({
     id: [type, v.id, key, y, i].join('.'), type, vendor: v.id, vname: v.name, key, release: tr, tag: m.tag, p: m.p,
     name: `${v.name.split(' ')[0]} ${v.series}-${m.code}`, sig: JSON.stringify(m.p),
   }));
@@ -867,6 +869,39 @@ function catalogItem(id) {
 const catalogVendor = id => { const [type, vid] = String(id || '').split('.'); return PART_VENDORS[type] ? PART_VENDORS[type].find(v => v.id === vid) : null; };
 // supplier markup on a standard part: each company has its own
 const stdMarkup = ref => { const v = ref && ref.vid ? catalogVendor(ref.vid) : null; return v ? v.mk : SUPPLIER_MARKUP; };
+// what makes a part better, for pricing: suppliers charge for being near the best on sale
+function partValue(type, st, p) {
+  switch (type) {
+    case 'display': case 'camera': return st.score;
+    case 'battery': return st.whl * (1 + st.chargeW / 120);
+    case 'memory': return Math.sqrt(Math.max(1e-3, st.ramMB)) * Math.pow(Math.max(1, st.storageMB), 0.25) * (1 + st.speed / 3000);
+    case 'radio': return Math.pow(Math.max(0.01, st.peak), 0.3) * Math.sqrt(1 + ((p && p.bands) || 1));
+  }
+  return 0;
+}
+// The best part on sale carries a premium – a share of what premium phones sell for – that fades fast for
+// parts behind it, like flagship chips. Your own designs pay only for making them.
+const PART_PREMIUM = { display: 0.05, camera: 0.045, memory: 0.03, battery: 0.016, radio: 0.025 };
+const _partBest = new Map();
+function partBest(type, key, t, role) {
+  const k = type + '|' + key + '|' + Math.floor(t * 12);
+  if (!_partBest.has(k)) {
+    let best = 0;
+    for (const x of catalogOnSale(type, key, t)) best = Math.max(best, partValue(type, PART_EVAL[type](x.p, t, role), x.p));
+    if (_partBest.size > 400) _partBest.clear();
+    _partBest.set(k, best);
+  }
+  return _partBest.get(k);
+}
+function partPremium(type, ref, t, role) {
+  const x = ref && ref.vid ? catalogItem(ref.vid) : null;
+  if (!x) return 0;
+  const best = partBest(type, x.key, t, role), val = partValue(type, PART_EVAL[type](ref.p, t, role), ref.p);
+  const rel = best > 0 ? val / best : 0, k = clamp((rel - 0.8) / 0.2, 0, 1);
+  return PART_PREMIUM[type] * (type === 'camera' && role && role !== 'main' ? 0.4 : 1) * segBudget(x.key.includes('tablet') ? 'tablet' : 'phone', 'premium', t) * k * k;
+}
+// what a supplier charges for one part: its cost of making × the company's markup + the performance premium
+const stdPartPrice = (type, ref, base, t, role) => base * stdMarkup(ref) + partPremium(type, ref, t, role);
 const stdVendorName = (type, ref) => { const v = ref && ref.vid ? catalogVendor(ref.vid) : null; return v ? v.name : SUPPLIERS[type]; };
 // the one number a buyer compares first
 function catalogMain(type, p) {

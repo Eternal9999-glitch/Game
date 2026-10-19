@@ -21,6 +21,8 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
    - **Suppliers**: every part type has three companies, and each releases a new range every year (models stay on sale for 3 years).
      For example, Lumina makes mainstream panels, Kiro the newest premium ones and Valor cheap older ones. SlimCell sells thin, small batteries
      and Titan big, cheap, thick ones. Every model lists its performance, the **room it takes** (cm³, thickness) and its price.
+     Suppliers charge for performance: the best part on sale costs several times a mainstream one, so flagship parts are a real
+     decision. Your own designs skip that premium. Shelves are stocked from the first day of every era.
      The processor list also shows each chip's performance, size and how much of its speed it keeps in your body.
    - **🧩 Body**: form factor, material, finish and color, plus an accent color (buttons, camera island, keys), a black or white
      front, key style (classic, round, flush pad, bubble), corner roundness, edge profile and **size**. Width, height and thickness are
@@ -30,15 +32,20 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
        integration steps.
      - A "room inside" bar shows where the space goes, and nothing gets thinner than its tallest part (battery cell, board and chip).
      - Thin bodies shed less heat, so hot chips throttle.
+   - **✏️ Your own art**: paint up to three **key shapes** (or start from a heart, star, circle and other presets) and a 16×16 **logo**.
+     The logo replaces the printed name, and **🔖 logo stamps** put it anywhere on the body: a few add to the design, more than four
+     look cluttered.
    - **Upgrades & decorations**: inner frames, cooling (graphite to fans), rugged bumpers or MIL-spec armor, back textures (carbon, leather,
      wood, aramid, fabric, gradient, translucent, color-shift), coatings, frame finishes and logo styles (embossed, badge, glowing).
    - **✨ Add-ons** (Features tab): ~30 researched extras – notification LED, scroll wheel, trackball, push-to-talk and shutter keys,
      IR blaster, flashlight, kickstand, TV tuner, dual SIM, alert slider, privacy switch, heart-rate and UV sensors, pico projector,
      e-ink or selfie back display, light strips, gaming triggers… Each adds cost, room and weight, and feature points if it fits the phone.
-   - **📐 Layout** unfolds the body into front, back and four edges. Drag the earpiece, mic, speakers, power and volume keys, ports,
+   - **📐 Layout** unfolds the body into front, back and four edges. Drag the screen, the keypad (click it to drag **single keys** and
+     give each key its own shape), the earpiece, mic, speakers, power and volume keys, ports,
      headphone jack, SIM tray, card slot, cameras, flash, fingerprint sensor, antenna, logo and optional keys anywhere they fit.
    - Ergonomics are scored: thumb reach, the mouth-to-ear distance between mic and earpiece, cameras your palm covers,
-     cables digging into your hand. Ports and jacks need body thickness. Sliders move the screen and keypad around the front, and touch
+     cables digging into your hand. Ports and jacks need body thickness. Moved keys can't overlap, sit on the screen or hang off
+     the front. Touch
      phones choose a home button and navigation keys (physical, capacitive, on-screen bar, gestures).
 3. **🛠️ Parts Lab**: each part type has its own design system:
    - **Display**: a layer stack of cover glass, touch layer, polarizer, emitter or liquid crystal plus color filter, TFT backplane and backlight.

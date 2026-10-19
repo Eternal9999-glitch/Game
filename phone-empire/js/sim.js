@@ -185,7 +185,7 @@ function productCosts(spec, t, maker) {
   }
   const part = (key, type, label, ref, base) => {
     if (!ref || base == null) return;
-    if (ref.src === 'std') { comps.push({ key, type, label: label + ' (' + stdVendorName(type, ref) + ')', buy: base * stdMarkup(ref) * sm, std: true }); return; }
+    if (ref.src === 'std') { comps.push({ key, type, label: label + ' (' + stdVendorName(type, ref) + ')', buy: stdPartPrice(type, ref, base, t, key.startsWith('cam_') ? key.slice(4) : null) * sm, std: true }); return; }
     const d = partRecord(ref);
     const excl = d ? designExclusive(d) : false;
     const plant = factoryActive(type);

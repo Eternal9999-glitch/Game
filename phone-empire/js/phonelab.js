@@ -45,6 +45,37 @@ function stdRef(type, d, role, like, vendor) {
   const p = stdBuilder(type, d, role);
   return p && stdPartOk(type, p, role, d) ? { src: 'std', p } : null;
 }
+// ---- drawn art: key-shape presets and a logo from your initial ----
+const KEY_PRESETS = [['circle', '●'], ['square', '■'], ['heart', '♥'], ['star', '★'], ['diamond', '◆'], ['pill', '▬']];
+function presetMask(name, n) {
+  const star = Array.from({ length: 10 }, (_, i) => { const a = Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 0.21 : 0.5; return [Math.cos(a) * r, Math.sin(a) * r]; });
+  const inPoly = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+  let out = '';
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = (i + 0.5) / n - 0.5, y = 0.5 - (j + 0.5) / n, ax = Math.abs(x), ay = Math.abs(y);
+    let on = false;
+    if (name === 'circle') on = x * x + y * y < 0.23;
+    else if (name === 'square') on = ax < 0.46 && ay < 0.46 && !(ax > 0.3 && ay > 0.3 && (ax - 0.3) ** 2 + (ay - 0.3) ** 2 > 0.026);
+    else if (name === 'heart') { const X = x * 2.4, Y = (y + 0.06) * 2.4; on = Math.pow(X * X + Y * Y - 1, 3) - X * X * Y * Y * Y < 0; }
+    else if (name === 'star') on = inPoly(x, y, star);
+    else if (name === 'diamond') on = ax + ay < 0.5;
+    else if (name === 'pill') on = ay < 0.3 && (ax < 0.2 || (ax - 0.2) ** 2 + y * y < 0.09);
+    out += on ? '1' : '0';
+  }
+  return out;
+}
+const hexLum = c => { const m = /^#?([0-9a-f]{6})$/i.exec(c || ''); if (!m) return 0.5; const v = parseInt(m[1], 16); return (((v >> 16) & 255) * 0.3 + ((v >> 8) & 255) * 0.59 + (v & 255) * 0.11) / 255; };
+function initialLogo(letter, col) {
+  const n = ART_N.logo, cv = document.createElement('canvas');
+  cv.width = cv.height = n;
+  const g = cv.getContext('2d');
+  g.font = `900 ${n + 1}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
+  g.fillText(letter || 'N', n / 2, n / 2 + 1);
+  const px = g.getImageData(0, 0, n, n).data;
+  let out = '';
+  for (let i = 0; i < n * n; i++) out += px[i * 4 + 3] > 110 ? col : '0';
+  return out;
+}
 // ---- what a part does and the room it takes (for supplier lists) ----
 function partPerf(type, st) {
   switch (type) {
@@ -92,7 +123,9 @@ function sanitizeDraft(d) {
   if (!d.addons) { d.addons = {}; for (const e of d.layout || []) if (LEGACY_ADDONS.includes(e.t)) d.addons[e.t] = true; }
   const blank = blankSpec(d.cat);
   for (const k in blank) if (d[k] == null) d[k] = clone(blank[k]);
-  for (const k of ['body', 'style', 'cams', 'feat', 'size', 'place', 'nav', 'up']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
+  for (const k of ['body', 'style', 'cams', 'feat', 'size', 'place', 'nav', 'up', 'art']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
+  if (!Array.isArray(d.stamps)) d.stamps = [];
+  d.stamps = d.stamps.filter(st => st && LAYOUT_TYPES.stamp.faces.includes(st.f)).slice(0, 8);
   if (d.cat === 'tablet') d.form = 'slate';
   else if (!FORMS[d.form] || d.form === 'slate' || !av.ok(FORMS[d.form].tech)) d.form = bestForm(av.std, t);
   const f = formOf(d);
@@ -165,7 +198,7 @@ function suggestPrice(d) {
 
 // ---- the lab --------------------------------------------------------------------------------
 const PhoneLab = {
-  name: 'Phone Lab', icon: '📱', live: false, tab: 'body', partMode: {}, catVendor: {}, catSort: {}, camOpen: 'main', sel: null,
+  name: 'Phone Lab', icon: '📱', live: false, tab: 'body', partMode: {}, catVendor: {}, catSort: {}, camOpen: 'main', sel: null, selKey: null, selStamp: null, paintCol: 1,
   render(el) {
     if (!S.draft) S.draft = defaultDraft('phone', now());
     sanitizeDraft(S.draft);
@@ -271,8 +304,12 @@ const PhoneLab = {
         <label class="tiny dim row" style="gap:4px">Custom <input type="color" id="accentPick" value="${esc(d.style.accent || d.color)}"></label></div>
       <h3>Front panel</h3>${segBtn('front', [{ v: 'black', label: '⬛ Black' }, { v: 'white', label: '⬜ White' }], d.style.front || 'black')}
       ${isKeypadForm(formOf(d)) || ['car', 'bag'].includes(formOf(d)) ? `<h3>Keys</h3>
-        ${segBtn('keys', [{ v: 'classic', label: 'Classic' }, { v: 'round', label: 'Round' }, { v: 'flush', label: 'Flush pad' }, { v: 'bubble', label: 'Bubble' }], d.style.keys || 'classic')}
-        <div class="mt-s">${segBtn('keytone', [{ v: 'auto', label: 'Auto' }, { v: 'light', label: 'Light keys' }, { v: 'dark', label: 'Dark keys' }, { v: 'accent', label: 'Accent' }], d.style.keyTone || 'auto')}</div>` : ''}
+        ${segBtn('keys', [{ v: 'classic', label: 'Classic' }, { v: 'round', label: 'Round' }, { v: 'flush', label: 'Flush pad' }, { v: 'bubble', label: 'Bubble' }].concat([0, 1, 2].filter(i => artDrawn(d.art.shapes[i])).map(i => ({ v: 'c' + i, label: '✏️ Drawn ' + (i + 1) }))), d.style.keys || 'classic')}
+        <div class="mt-s">${segBtn('keytone', [{ v: 'auto', label: 'Auto' }, { v: 'light', label: 'Light keys' }, { v: 'dark', label: 'Dark keys' }, { v: 'accent', label: 'Accent' }], d.style.keyTone || 'auto')}</div>
+        <h3>Key shapes <span class="faint">draw your own</span></h3>
+        <div class="tiny faint mb-s">Paint a shape, then use it for all keys (above) or for single keys in 📐 Layout. Start from a preset if you like.</div>
+        <div class="paint-row">${[0, 1, 2].map(i => `<div class="paint-slot"><div class="tiny dim">Shape ${i + 1}</div>${this.painter('shape' + i, d.art.shapes[i] || '', ART_N.shape)}
+          <div class="row wrap" style="gap:3px">${KEY_PRESETS.map(([k, ic]) => `<button class="btn xs" data-preset="${i}:${k}" title="${k}">${ic}</button>`).join('')}<button class="btn xs" data-paintclear="shape${i}" title="Clear">✕</button></div></div>`).join('')}</div>` : ''}
       <h3>Shape</h3>
       ${capSlider('style.radius', 'Corner roundness', 0, 1, 0.05, d.style.radius, v => Math.round(v * 100) + '%')}
       ${segBtn('edge', [{ v: 'round', label: 'Rounded edges' }, { v: 'flat', label: 'Flat sides' }, { v: 'chamfer', label: 'Chamfered' }], d.style.edge)}
@@ -284,8 +321,21 @@ const PhoneLab = {
       <div class="tiny faint mt-s">Electronics take up <b>${pc.ev.elecVol.toFixed(0)} cm³</b>. Every integration step shrinks them – that's what turns a car-trunk radio into a pocket phone.</div>
       ${nextInt ? `<div class="mt-s">${lockFoot(techUI(nextInt[0]))}</div>` : ''}
       <h3>Logo</h3><input type="text" data-path="style.logo" value="${esc(d.style.logo || '')}" placeholder="${esc(S.company.split(' ')[0].toUpperCase())}" maxlength="14" class="full">
-      <div class="mt-s">${optCards('up.logostyle', Object.entries(LOGO_STYLES).map(([k, o]) => ({ v: k, title: o.name, sub: o.desc, tech: o.tech })), d.up.logostyle, 4)}</div>`;
+      <div class="mt-s">${optCards('up.logostyle', Object.entries(LOGO_STYLES).map(([k, o]) => ({ v: k, title: o.name, sub: o.desc, tech: o.tech })), d.up.logostyle, 4)}</div>
+      <h3>Logo art <span class="faint">${artDrawn(d.art.logo) ? 'drawn' : 'using your brand name'}</span></h3>
+      <div class="tiny faint mb-s">Draw a 16×16 logo. It replaces the printed name, and you can stamp it anywhere on the body (📐 Layout → 🔖 Logo stamp) – a few stamps look designed.</div>
+      <div class="row wrap" style="gap:12px;align-items:flex-start">${this.painter('logo', d.art.logo || '', ART_N.logo)}
+        <div><div class="pal">${LOGO_PALETTE.map((c, i) => `<button class="pal-c ${(this.paintCol == null ? 1 : this.paintCol) === i ? 'on' : ''}" data-pal="${i}" title="${i ? '' : 'Eraser'}" style="background:${i ? this.palColor(i, d) : 'transparent'}">${i ? '' : '⌫'}</button>`).join('')}</div>
+          <div class="row wrap mt-s" style="gap:4px"><button class="btn xs" data-act="logoinitial">Start from my initial</button><button class="btn xs" data-paintclear="logo">Clear</button></div>
+          <div class="row wrap mt-s" style="gap:4px"><button class="btn sm" data-act="addstamp" ${d.stamps.length >= 8 ? 'disabled' : ''}>🔖 + Stamp it on the body</button><span class="tiny faint">${d.stamps.length} stamp${d.stamps.length === 1 ? '' : 's'}</span></div></div></div>`;
   },
+  // a pixel grid you paint on (shapes: on/off; the logo: palette colors)
+  painter(id, art, n) {
+    let h = '';
+    for (let j = 0; j < n * n; j++) { const c = +(art[j] || 0); h += `<i style="${c ? 'background:' + (id === 'logo' ? this.palColor(c, S.draft) : '#e9edf5') : ''}"></i>`; }
+    return `<div class="paint ${id === 'logo' ? 'logo' : ''}" data-paint="${id}" data-n="${n}" style="--n:${n}">${h}</div>`;
+  },
+  palColor(i, d) { const c = LOGO_PALETTE[i]; return c === 'accent' ? (d && d.style.accent) || '#f08a3c' : c; },
   // frames, cooling, ruggedness, textures, coatings and frame finishes
   upgradeCards(d) {
     const t = now(), price = o => (o.cost ? ' · ' + fmtMoney(o.cost * decl(0.08, o.tech ? techMarket(o.tech) : 2000, t, 0.3)) : '');
@@ -295,18 +345,21 @@ const PhoneLab = {
   },
   layout(d, pc) {
     const ev = pc.ev, lay = ev.lay;
-    const sel = lay.find(e => e.t === this.sel);
+    const sel = this.sel === 'stamp' ? null : lay.find(e => e.t === this.sel && e.t !== 'stamp');
     return `<div class="tiny dim mb-s">Drag anything onto any face it fits. Front, back and the four edges are unfolded below. Red = doesn't fit.</div>
       <div class="net-wrap" id="netWrap"></div>
       <div class="row wrap mt-s">
         <button class="btn sm" data-act="autolayout" title="Let your engineers place everything">✨ Auto-arrange</button>
-        <span class="tiny faint">Add keys, sensors and other extras under ✨ Features → Add-ons.</span>
+        <button class="btn sm" data-act="addstamp" ${(d.stamps || []).length >= 8 ? 'disabled' : ''} title="Stamp your logo anywhere on the body">🔖 + Logo stamp</button>
+        ${['sx', 'sy', 'kx', 'ky'].some(k => +(d.place || {})[k]) || Object.keys(d.keyPos || {}).length ? '<button class="btn sm" data-placereset="1">↺ Default screen & key positions</button>' : ''}
+        <span class="tiny faint">Drag the screen and keypad too. Add keys, sensors and other extras under ✨ Features → Add-ons.</span>
       </div>
+      ${this.selPanel(d, ev)}
       ${sel ? `<div class="card sub mt"><div class="row between"><b>${LAYOUT_TYPES[sel.t].name}</b>${ADDONS[sel.t] ? `<button class="btn sm danger" data-delel="${sel.t}">Remove</button>` : ''}</div>
         <div class="tiny dim">${LAYOUT_TYPES[sel.t].desc}</div>
         <div class="tiny faint mt-s">On the <b>${sel.f}</b> face · allowed: ${LAYOUT_TYPES[sel.t].faces.join(', ')}</div>
-        <label class="chk small mt-s"><input type="checkbox" id="elAuto" ${d.layout.find(e => e.t === sel.t).auto !== false ? 'checked' : ''}> Let engineers place it automatically</label></div>` : '<div class="tiny faint mt">Click an element to see where it works best.</div>'}
-      ${this.placeCtl(d, ev)}
+        <label class="chk small mt-s"><input type="checkbox" id="elAuto" ${d.layout.find(e => e.t === sel.t).auto !== false ? 'checked' : ''}> Let engineers place it automatically</label></div>` : ['screen', 'keypad', 'stamp'].includes(this.sel) ? '' : '<div class="tiny faint mt">Click an element to see where it works best. Click the keypad to move single keys.</div>'}
+      ${this.navCtl(d, ev)}
       <h3>Ergonomics <span class="faint">${Math.round(ev.layout.score * 100)} / 100</span></h3>
       ${ev.layout.notes.length ? ev.layout.notes.map(n => `<div class="tiny warn">${esc(n)}</div>`).join('') : '<div class="tiny good">Everything is where hands and faces expect it.</div>'}
       <h3>Ports</h3>
@@ -316,20 +369,34 @@ const PhoneLab = {
       <div class="mt-s">${toggleCard('sd', 'Memory card slot', 'microSD on an edge or under the cover', 'feat_sd', d.sd)}</div>
       <h3>Camera island</h3>${segBtn('island', [{ v: 'auto', label: 'Auto' }, { v: 'square', label: 'Square' }, { v: 'circle', label: 'Circle' }, { v: 'bar', label: 'Bar' }, { v: 'none', label: 'Flush lenses' }], d.style.island)}`;
   },
-  // drag the screen and keypad around the front (mm from their default spots)
-  placeCtl(d, ev) {
-    const f = formOf(d), F = FORMS[f], pl = d.place || {}, touch = !isKeypadForm(f) && f !== 'car' && f !== 'bag';
-    const sl = (k, label, min, max) => `<div class="cap"><div class="row between"><span class="dim small">${label}</span><b class="mono" data-show="place.${k}">${(+pl[k] || 0).toFixed(1)} mm</b></div>
-      <input type="range" data-path="place.${k}" data-num min="${min}" max="${max}" step="0.5" value="${+pl[k] || 0}"></div>`;
-    const nav = touch && f !== 'fold' ? `<h3>Navigation</h3>
+  // the selected screen, keypad, key or logo stamp
+  selPanel(d, ev) {
+    if (this.sel === 'screen' && ev.geom.screenRect) return `<div class="card sub mt"><b>Screen</b><div class="tiny dim">Drag it around the front. The body grows if it has to; margins never go below what the parts need.</div></div>`;
+    if (this.sel === 'keypad' && ev.geom.keypadRect) {
+      const k = this.selKey ? keypadKeys(d, ev.geom.keypadRect, ev.geom.form).find(x => x.id === this.selKey) : null;
+      const shapes = [['', 'Body style'], ['classic', 'Classic'], ['round', 'Round'], ['flush', 'Flush'], ['bubble', 'Bubble']].concat([0, 1, 2].filter(i => artDrawn(d.art.shapes[i])).map(i => ['c' + i, '✏️ Drawn ' + (i + 1)]));
+      return `<div class="card sub mt"><b>Keypad</b><div class="tiny dim">Drag the pad to move all keys, or drag single keys to rearrange them. Keys can't overlap, sit on the screen or hang off the front.</div>
+        ${k ? `<div class="mt-s"><b class="small">Key ${esc(k.l || k.id)}</b> <span class="tiny faint">${k.moved ? 'moved' : 'in its default spot'}</span></div>
+          <div class="mt-s">${segBtn('keyshape', shapes.map(([v, label]) => ({ v, label })), (d.keyShape || {})[k.id] || '')}</div>
+          <div class="row wrap mt-s"><button class="btn sm" data-keyall="1">Use this shape on every key</button>${k.moved ? '<button class="btn sm" data-keyreset="1">↺ Put this key back</button>' : ''}</div>` : '<div class="tiny faint mt-s">Click a key to pick its shape. Draw your own shapes in 🧩 Body → Key shapes.</div>'}</div>`;
+    }
+    if (this.sel === 'stamp' && d.stamps[this.selStamp]) {
+      const st = d.stamps[this.selStamp];
+      return `<div class="card sub mt"><div class="row between"><b>Logo stamp ${this.selStamp + 1}</b><button class="btn sm danger" data-stampdel="1">Remove</button></div>
+        <div class="tiny dim">On the ${st.f}. ${artDrawn(d.art.logo) ? 'Uses your drawn logo.' : 'Uses your brand name – draw a logo in 🧩 Body → Logo art.'} A few stamps make a design; more than four look cluttered.</div>
+        <div class="mt-s">${segBtn('stampsize', [{ v: 6, label: 'Small' }, { v: 10, label: 'Medium' }, { v: 16, label: 'Large' }, { v: 24, label: 'Huge' }], st.s || 10)}</div></div>`;
+    }
+    return '';
+  },
+  // home button and navigation keys of a touch phone
+  navCtl(d, ev) {
+    const f = formOf(d), touch = !isKeypadForm(f) && f !== 'car' && f !== 'bag';
+    if (!touch || f === 'fold') return '';
+    const opt = (tbl, rename) => Object.entries(tbl).map(([k, o]) => ({ v: k, label: rename(o.name), disabled: o.tech && !playerAv().ok(o.tech), title: o.tech ? techUI(o.tech).msg || TECH[o.tech].desc : '' }));
+    return `<h3>Navigation</h3>
       <div class="tiny faint mb-s">Now: ${NAV_HOME[ev.geom.nav.home].name} · ${NAV_KEYS[ev.geom.nav.keys].name}. A home button or keys need a chin below the screen.</div>
-      ${segBtn('navhome', [{ v: 'auto', label: 'Auto' }].concat(Object.entries(NAV_HOME).map(([k, o]) => ({ v: k, label: o.name.replace(' home button', ''), disabled: o.tech && !playerAv().ok(o.tech), title: o.tech ? techUI(o.tech).msg || TECH[o.tech].desc : '' }))), d.nav.home)}
-      <div class="mt-s">${segBtn('navkeys', [{ v: 'auto', label: 'Auto' }].concat(Object.entries(NAV_KEYS).map(([k, o]) => ({ v: k, label: o.name.replace(' (home button only)', '').replace('On-screen navigation bar', 'On-screen bar').replace('Gesture navigation', 'Gestures'), disabled: o.tech && !playerAv().ok(o.tech), title: o.tech ? techUI(o.tech).msg || TECH[o.tech].desc : '' }))), d.nav.keys)}</div>` : '';
-    if (f === 'fold' || (!ev.geom.screenRect && !F.kp)) return nav;
-    return `<h3>Screen & keypad position</h3><div class="tiny faint mb-s">Move them around the front. Pushing them apart grows the body; margins never go below what the parts need.</div>
-      ${ev.geom.screenRect ? sl('sy', 'Screen ↕ (up +)', -12, 20) + sl('sx', 'Screen ↔', -12, 12) : ''}
-      ${F.kp && f !== 'slider' ? sl('ky', 'Keypad ↕ (up +)', -10, 20) + sl('kx', 'Keypad ↔', -12, 12) : ''}
-      ${['sx', 'sy', 'kx', 'ky'].some(k => +pl[k]) ? '<button class="btn sm" data-placereset="1">↺ Default positions</button>' : ''}${nav}`;
+      ${segBtn('navhome', [{ v: 'auto', label: 'Auto' }].concat(opt(NAV_HOME, n => n.replace(' home button', ''))), d.nav.home)}
+      <div class="mt-s">${segBtn('navkeys', [{ v: 'auto', label: 'Auto' }].concat(opt(NAV_KEYS, n => n.replace(' (home button only)', '').replace('On-screen navigation bar', 'On-screen bar').replace('Gesture navigation', 'Gestures'))), d.nav.keys)}</div>`;
   },
   screen(d) {
     return this.partSwitch('display', d) + (this.mode('display', d) === 'own' ? this.ownList('display', d, null) : this.catalogList('display', d));
@@ -478,7 +545,7 @@ const PhoneLab = {
     const fv = this.catVendor[type] || 'all', sort = this.catSort[type] || 'new';
     let rows = catalogOnSale(type, partKey(type, d, role), t).map(x => {
       const st = PART_EVAL[type](x.p, t, role), v = catalogVendor(x.id);
-      return { x, st, v, ok: stdPartOk(type, x.p, role, d), price: st.cost * v.mk * sm, room: partRoom(type, st), perf: partPerf(type, st) };
+      return { x, st, v, ok: stdPartOk(type, x.p, role, d), price: stdPartPrice(type, { src: 'std', p: x.p, vid: x.id }, st.cost, t, role) * sm, room: partRoom(type, st), perf: partPerf(type, st) };
     });
     if (!rows.length) return `<div class="note">Nobody sells a ${PART_INFO[type].name.toLowerCase()} for this kind of device yet.</div>`;
     if (fv !== 'all') rows = rows.filter(r => r.x.vendor === fv);
@@ -579,11 +646,17 @@ const PhoneLab = {
     const col = S.draft.color;
     let h = `<div class="net" style="width:${N.width}px;height:${N.height}px">`;
     for (const [f, fc] of Object.entries(N.faces)) h += `<div class="net-face ${f}" style="left:${fc.x}px;top:${fc.y}px;width:${fc.w}px;height:${fc.h}px;background:${col}"><span>${f}</span></div>`;
-    const fr = N.faces.front;
-    if (g.screenRect) { const [x, y, w, hh] = g.screenRect; h += `<div class="net-zone screen" style="left:${fr.x + x * N.k}px;top:${fr.y + (N.Hf - y - hh) * N.k}px;width:${w * N.k}px;height:${hh * N.k}px">screen</div>`; }
-    if (g.keypadRect) { const [x, y, w, hh] = g.keypadRect; h += `<div class="net-zone keypad" style="left:${fr.x + x * N.k}px;top:${fr.y + (N.Hf - y - hh) * N.k}px;width:${w * N.k}px;height:${hh * N.k}px">keys</div>`; }
+    const fr = N.faces.front, d = S.draft;
+    const zone = (r, cls, label, drag) => { const [x, y, w, hh] = r; return `<div class="net-zone ${cls} ${this.sel === cls ? 'sel' : ''} ${drag ? 'drag' : ''}" ${drag ? `data-zone="${cls}"` : ''} title="${drag ? 'Drag to move' : ''}" style="left:${fr.x + x * N.k}px;top:${fr.y + (N.Hf - y - hh) * N.k}px;width:${w * N.k}px;height:${hh * N.k}px">${label}</div>`; };
+    if (g.screenRect) h += zone(g.screenRect, 'screen', 'screen', g.form !== 'fold');
+    if (g.keypadRect) h += zone(g.keypadRect, 'keypad', this.sel === 'keypad' ? '' : 'keys', true);
+    // with the keypad selected, every key can be dragged on its own
+    if (g.keypadRect && this.sel === 'keypad') for (const k of keypadKeys(d, g.keypadRect, g.form)) {
+      h += `<div class="net-key ${this.selKey === k.id ? 'sel' : ''}" data-key="${k.id}" style="left:${fr.x + (k.x - k.w / 2) * N.k}px;top:${fr.y + (N.Hf - k.y - k.h / 2) * N.k}px;width:${k.w * N.k}px;height:${k.h * N.k}px">${esc(k.l && k.l.length < 3 ? k.l : '')}</div>`;
+    }
     lay.forEach((el, i) => {
       const [x, y, w, hh] = this.elRectPx(el, N);
+      if (el.t === 'stamp') { h += `<div class="net-el t-stamp ${this.sel === 'stamp' && this.selStamp === el.i ? 'sel' : ''}" data-stamp="${el.i}" title="Logo stamp" style="left:${x}px;top:${y}px;width:${Math.max(6, w)}px;height:${Math.max(6, hh)}px"></div>`; return; }
       const lt = LAYOUT_TYPES[el.t];
       const idx = (S.draft.layout || []).findIndex(e => e.t === el.t);
       h += `<div class="net-el ${bad[i] ? 'bad' : ''} ${this.sel === el.t ? 'sel' : ''} ${el.auto === false ? 'manual' : ''} t-${el.t}" data-el="${el.t}" data-idx="${idx}" title="${esc(lt.name)}"
@@ -597,19 +670,29 @@ const PhoneLab = {
     const net = $('.net', $('#netWrap'));
     if (!net) return;
     let drag = null;
+    const r05 = v => Math.round(v * 2) / 2;
+    const at = e => { const r = net.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     net.onpointerdown = e => {
-      const elDiv = e.target.closest('[data-el]');
-      if (!elDiv) return;
+      const ky = e.target.closest('[data-key]'), zn = e.target.closest('[data-zone]'), st = e.target.closest('[data-stamp]'), elDiv = e.target.closest('[data-el]');
+      if (!ky && !zn && !st && !elDiv) return;
       e.preventDefault();
-      const type = elDiv.dataset.el;
-      this.sel = type;
-      const d = S.draft;
-      const resolved = this.pc.ev.lay.find(x => x.t === type);
-      const rec = d.layout.find(x => x.t === type);
-      if (rec && rec.auto !== false) Object.assign(rec, { f: resolved.f, u: resolved.u, v: resolved.v, auto: false });
-      drag = { type, moved: false };
+      const d = S.draft, [x0, y0] = at(e);
+      if (ky) { this.selKey = ky.dataset.key; drag = { kind: 'key', id: ky.dataset.key, x0, y0, o: (d.keyPos[ky.dataset.key] || [0, 0]).slice(), box: ky }; }
+      else if (zn) {
+        const z = zn.dataset.zone, pl = d.place;
+        if (this.sel !== z) this.selKey = null;
+        this.sel = z;
+        drag = { kind: 'zone', zone: z, x0, y0, o: z === 'screen' ? [+pl.sx || 0, +pl.sy || 0] : [+pl.kx || 0, +pl.ky || 0], box: zn };
+      } else if (st) { this.sel = 'stamp'; this.selStamp = +st.dataset.stamp; drag = { kind: 'stamp', i: +st.dataset.stamp, box: st }; }
+      else {
+        const type = elDiv.dataset.el;
+        this.sel = type;
+        const resolved = this.pc.ev.lay.find(x => x.t === type), rec = d.layout.find(x => x.t === type);
+        if (rec && rec.auto !== false) Object.assign(rec, { f: resolved.f, u: resolved.u, v: resolved.v, auto: false });
+        drag = { kind: 'el', type, box: elDiv };
+        if (this.has3d && Device3D.highlight) Device3D.highlight(type);
+      }
       net.setPointerCapture(e.pointerId);
-      if (this.has3d && Device3D.highlight) Device3D.highlight(type);
     };
     net.onpointermove = e => {
       if (!drag) {
@@ -617,17 +700,23 @@ const PhoneLab = {
         if (this.has3d && Device3D.highlight) Device3D.highlight(elDiv ? elDiv.dataset.el : this.sel);
         return;
       }
-      const r = net.getBoundingClientRect();
-      const x = e.clientX - r.left, y = e.clientY - r.top;
-      const rec = S.draft.layout.find(z => z.t === drag.type);
-      const pos = this.pxToFace(x, y, this.N, LAYOUT_TYPES[drag.type].faces);
-      if (!pos) return;
-      Object.assign(rec, pos, { auto: false });
+      const [x, y] = at(e), d = S.draft, k = this.N.k;
       drag.moved = true;
-      // move the box without a full rebuild
-      const box = $(`[data-el="${drag.type}"]`, net);
-      const [bx, by, bw, bh] = this.elRectPx(rec, this.N);
-      Object.assign(box.style, { left: bx + 'px', top: by + 'px', width: Math.max(6, bw) + 'px', height: Math.max(6, bh) + 'px' });
+      if (drag.kind === 'key' || drag.kind === 'zone') {
+        const dx = (x - drag.x0) / k, dy = -(y - drag.y0) / k;
+        if (drag.kind === 'key') d.keyPos[drag.id] = [r05(drag.o[0] + dx), r05(drag.o[1] + dy)];
+        else if (drag.zone === 'screen') { d.place.sx = clamp(r05(drag.o[0] + dx), -15, 15); d.place.sy = clamp(r05(drag.o[1] + dy), -15, 25); }
+        else { d.place.kx = clamp(r05(drag.o[0] + dx), -15, 15); d.place.ky = clamp(r05(drag.o[1] + dy), -12, 25); }
+        drag.box.style.transform = `translate(${x - drag.x0}px, ${y - drag.y0}px)`;
+      } else {
+        const faces = drag.kind === 'stamp' ? LAYOUT_TYPES.stamp.faces : LAYOUT_TYPES[drag.type].faces;
+        const pos = this.pxToFace(x, y, this.N, faces);
+        if (!pos) return;
+        const rec = drag.kind === 'stamp' ? d.stamps[drag.i] : d.layout.find(z => z.t === drag.type);
+        Object.assign(rec, pos, drag.kind === 'el' ? { auto: false } : {});
+        const [bx, by, bw, bh] = this.elRectPx(drag.kind === 'stamp' ? { t: 'stamp', f: rec.f, u: rec.u, v: rec.v, s: rec.s } : rec, this.N);
+        Object.assign(drag.box.style, { left: bx + 'px', top: by + 'px', width: Math.max(6, bw) + 'px', height: Math.max(6, bh) + 'px' });
+      }
       clearTimeout(this._lt);
       this._lt = setTimeout(() => this.light(), 60);
     };
@@ -764,7 +853,16 @@ const PhoneLab = {
       const sa = e.target.closest('[data-sizeauto]');
       if (sa) { d().size[sa.dataset.sizeauto] = 0; changed(); return; }
       const pr = e.target.closest('[data-placereset]');
-      if (pr) { d().place = { sx: 0, sy: 0, kx: 0, ky: 0 }; changed(); return; }
+      if (pr) { d().place = { sx: 0, sy: 0, kx: 0, ky: 0 }; d().keyPos = {}; changed(); return; }
+      const pal = e.target.closest('[data-pal]');
+      if (pal) { this.paintCol = +pal.dataset.pal; changed(); return; }
+      const pre = e.target.closest('[data-preset]');
+      if (pre) { const [i, name] = pre.dataset.preset.split(':'); d().art.shapes[+i] = presetMask(name, ART_N.shape); changed(); return; }
+      const pcl = e.target.closest('[data-paintclear]');
+      if (pcl) { const id = pcl.dataset.paintclear; if (id === 'logo') d().art.logo = ''; else d().art.shapes[+id.slice(5)] = ''; changed(); return; }
+      if (e.target.closest('[data-keyall]') && this.selKey) { const sh = (d().keyShape || {})[this.selKey] || ''; d().keyShape = {}; if (sh) d().style.keys = sh; changed(); return; }
+      if (e.target.closest('[data-keyreset]') && this.selKey) { delete d().keyPos[this.selKey]; changed(); return; }
+      if (e.target.closest('[data-stampdel]')) { d().stamps.splice(this.selStamp, 1); this.sel = null; changed(); return; }
       const ch = e.target.closest('[data-chip]');
       if (ch) { const [kind, id] = ch.dataset.chip.split(':'); d().chip = { kind, id }; changed(); return; }
       const col = e.target.closest('[data-color]');
@@ -781,6 +879,8 @@ const PhoneLab = {
         if (seg === 'keys') d().style.keys = v;
         if (seg === 'keytone') { d().style.keyTone = v; if (v === 'accent' && !d().style.accent) d().style.accent = BODY_COLORS[11]; }
         if (seg && seg.startsWith('catv-')) this.catVendor[seg.slice(5)] = v;
+        if (seg === 'keyshape' && this.selKey) { if (v) d().keyShape[this.selKey] = v; else delete d().keyShape[this.selKey]; }
+        if (seg === 'stampsize' && d().stamps[this.selStamp]) d().stamps[this.selStamp].s = +v;
         if (seg === 'navhome') d().nav.home = v;
         if (seg === 'navkeys') d().nav.keys = v;
         if (seg && seg.startsWith('up-')) d().up[seg.slice(3)] = v;
@@ -798,6 +898,8 @@ const PhoneLab = {
       if (a === 'suggest') { d().price = suggestPrice(d()); changed(); toast(`Suggested price: ${fmtMoney(d().price)}`); }
       if (a === 'autolayout') { d().layout = d().layout.map(x => Object.assign(x, { auto: true })); d().layout.forEach(x => { const [f, u, v] = defaultPlacement(x.t, d()); Object.assign(x, { f, u, v }); }); changed(); }
       if (a === 'autosize') { d().size = { w: 0, h: 0, t: 0 }; changed(); }
+      if (a === 'logoinitial') { const dd = d(), col = dd.style.accent ? '3' : hexLum(dd.color) > 0.55 ? '2' : '1'; dd.art.logo = initialLogo(((dd.style.logo || S.company || 'N').trim()[0] || 'N').toUpperCase(), col); changed(); }
+      if (a === 'addstamp' && d().stamps.length < 8) { d().stamps.push({ f: 'back', u: 0.5, v: 0.62 - 0.08 * d().stamps.length, s: 10 }); this.sel = 'stamp'; this.selStamp = d().stamps.length - 1; changed(); }
       if (a === 'fillbat') {
         const x = this.biggerBattery(d(), this.eval().ev);
         if (x) { d().battery = { src: 'std', p: clone(x.p), vid: x.id }; changed(); toast(`Battery: ${x.name} · ${x.p.mah.toLocaleString('en-US')} mAh`); }
@@ -813,6 +915,28 @@ const PhoneLab = {
           showView('production');
         }
       }
+    };
+    // paint on a pixel grid: drag to draw; shapes toggle on/off from the first cell, the logo uses the picked color
+    el.onpointerdown = e => {
+      const pt = e.target.closest('.paint');
+      if (!pt) return;
+      e.preventDefault();
+      const id = pt.dataset.paint, n = +pt.dataset.n, dd = S.draft;
+      const arr = (id === 'logo' ? dd.art.logo || '' : dd.art.shapes[+id.slice(5)] || '').padEnd(n * n, '0').slice(0, n * n).split('');
+      const cell = ev => { const r = pt.getBoundingClientRect(), i = Math.floor((ev.clientX - r.left) / r.width * n), j = Math.floor((ev.clientY - r.top) / r.height * n); return i >= 0 && j >= 0 && i < n && j < n ? j * n + i : -1; };
+      const c0 = cell(e);
+      if (c0 < 0) return;
+      const val = id === 'logo' ? String(this.paintCol == null ? 1 : this.paintCol) : arr[c0] === '1' ? '0' : '1';
+      const paint = i => { if (i < 0 || arr[i] === val) return; arr[i] = val; pt.children[i].style.background = val === '0' ? '' : id === 'logo' ? this.palColor(+val, dd) : '#e9edf5'; };
+      paint(c0);
+      pt.setPointerCapture(e.pointerId);
+      pt.onpointermove = ev => paint(cell(ev));
+      pt.onpointerup = () => {
+        pt.onpointermove = pt.onpointerup = null;
+        const str = arr.join('');
+        if (id === 'logo') dd.art.logo = artDrawn(str) ? str : ''; else dd.art.shapes[+id.slice(5)] = str.indexOf('1') >= 0 ? str : '';
+        changed();
+      };
     };
     el.oninput = e => {
       const inp = e.target;
