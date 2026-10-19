@@ -52,6 +52,10 @@ internet connection; offline, the Phone Lab still works without the 3D model. Th
    - business
 
    Each becomes industry standard on its historical date. Research it earlier and it's exclusive, and only your own plant can make it.
+   - 🏭 **Manufacturers** see the whole tree and research every part technology themselves.
+   - 🎨 **Design Houses** and 🔬 **Tech Pioneers** buy their parts, so networks, displays, cameras, batteries, memory, process nodes
+     and manufacturing tech arrive from suppliers once they become standard. Their tree is chip design, design & body,
+     features & software and business. Building a plant (say a Display Fab) adds that plant's track back, so you can research it early.
 8. **🏁 Benchmarks**: every phone on sale is measured the same way:
    - PhoneMark
    - CPU and single-core

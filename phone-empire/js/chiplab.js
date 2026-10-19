@@ -53,10 +53,10 @@ const ChipLab = {
             <div class="die-ctl">
               <input type="text" id="chipName" value="${esc(dr.name)}" maxlength="24" style="width:150px" title="Chip name">
               <select id="chipNode" title="Process node">${nodes.map(n => `<option value="${n.nm}" ${n.nm === dr.nm ? 'selected' : ''}>${nodeLabel(n.nm)} · ${fmtMoney(waferPrice(n, now()))}/wafer${hasFab(n.nm) ? ' · your fab' : ''}</option>`).join('')}</select>
-              <span class="dim small">Die</span>
+              <span class="row nowrap" style="gap:6px"><span class="dim small">Die</span>
               <span class="stepper"><button data-act="w-">−</button><span>${dr.w}</span><button data-act="w+">+</button></span>
               <span class="dim">×</span>
-              <span class="stepper"><button data-act="h-">−</button><span>${dr.h}</span><button data-act="h+">+</button></span>
+              <span class="stepper"><button data-act="h-">−</button><span>${dr.h}</span><button data-act="h+">+</button></span></span>
             </div>
             <div class="die-ctl mt-s">
               <span class="dim small">Clock</span>
@@ -110,7 +110,7 @@ const ChipLab = {
         h += `<div class="heat" style="left:${x * C}px;top:${y * C}px;width:${C}px;height:${C}px;background:${col}"></div>`;
       });
     }
-    if (!dr.blocks.length) h += `<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;pointer-events:none" class="small dim">Pick a block on the left, then click the die to place it.<br>New to chips? Try <b>✨ Starter layout</b>.</div>`;
+    if (!dr.blocks.length) h += `<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;pointer-events:none" class="small dim die-hint"><div>Pick a block on the left, then click the die to place it.<br>New to chips? Try <b>✨ Starter layout</b>.</div></div>`;
     h += '<div class="ghost hidden" id="ghost"></div></div>';
     h += `<div class="tiny faint">${(dr.w * CELL_MM).toFixed(1)} × ${(dr.h * CELL_MM).toFixed(1)} mm die · each cell ${CELL_MM2} mm² · selected: <b>${this.sel === 'erase' ? 'Erase' : BLOCKS[this.sel].name}${this.rot ? ' (rotated)' : ''}</b></div>`;
     wrap.innerHTML = h;

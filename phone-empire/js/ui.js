@@ -136,6 +136,7 @@ function techUI(id, mode) {
     if (av.has(id)) return { ok: false, msg: `Suppliers sell it from ${dateLabel(tc.market)} – design your own part to use it now` };
   } else if (av.ok(id)) return { ok: true, ex: !av.market(id) };
   const st = techState(tc);
+  if (st === 'supplied') return { ok: false, msg: `${supplierWord(tc)} from ${dateLabel(tc.market)}` };
   if (st === 'done') return { ok: false, msg: `Researched – needs your own ${FACTORY_TYPES[TECH_CATS[tc.cat].factory].name} until ${dateLabel(tc.market)}` };
   if (st === 'active') { const r = S.research.find(x => x.id === id); return { ok: false, msg: `Researching… ${Math.round(r.progress / r.days * 100)}%` }; }
   if (st === 'future') return { ok: false, msg: `Can't be researched before ${dateLabel(tc.never ? tc.opens : tc.market - tc.lead)}` };

@@ -291,25 +291,32 @@ const Research = {
   name: 'Research', icon: '🔬', cat: 'network', mode: 'tree', filter: 'next', sel: null, _scrollToNow: true,
   render(el) {
     const slots = researchSlots(), spd = researchSpeed(), t = now();
+    const cats = Object.keys(TECH_CATS).filter(catVisible), hidden = Object.keys(TECH_CATS).filter(c => !catVisible(c));
+    if (!cats.includes(this.cat)) { this.cat = cats[0]; this.sel = null; }
+    const shown = TECHS.filter(tc => catVisible(tc.cat));
     const counts = { done: 0, available: 0 };
-    for (const tc of TECHS) { const s = techState(tc); if (s === 'done') counts.done++; if (s === 'available') counts.available++; }
-    const catCounts = Object.fromEntries(Object.keys(TECH_CATS).map(c => [c, TECHS.filter(tc => tc.cat === c && techState(tc) === 'available').length]));
+    for (const tc of shown) { const s = techState(tc); if (s === 'done') counts.done++; if (s === 'available') counts.available++; }
+    const catCounts = Object.fromEntries(cats.map(c => [c, TECHS.filter(tc => tc.cat === c && techState(tc) === 'available').length]));
+    const intro = S.playstyle === 'maker' ? 'Every part, network, feature and size step must be researched before you can use it. Being first is expensive and exclusive – catching up is cheap.'
+      : 'Your suppliers bring part technology as it becomes industry standard. Research what makes your phones yours – design, features, chips and business. Being first is expensive and exclusive – catching up is cheap.';
+    const note = suppliedCat(this.cat) ? `Comes from suppliers once it is standard. Because you own a ${FACTORY_TYPES[this.cat === 'manufacturing' ? 'assembly' : TECH_CATS[this.cat].factory].name}, you can research it early and make it exclusive.` : TECH_CATS[this.cat].note;
     el.innerHTML = `
-      <div class="view-title"><h1>🔬 Research</h1><p>Every part, network, feature and size step must be researched before you can use it. Being first is expensive and exclusive – catching up is cheap.</p></div>
+      <div class="view-title"><h1>🔬 Research</h1><p>${intro}</p></div>
       <div class="grid g4 mb">
         <div class="kpi"><div class="l">Research slots</div><div class="v">${S.research.length} / ${slots}</div><div class="d dim">R&D Centers add more</div></div>
         <div class="kpi"><div class="l">Research speed</div><div class="v">${Math.round(spd * 100)}%</div><div class="d dim">+25% per R&D Center level</div></div>
-        <div class="kpi"><div class="l">Researched</div><div class="v">${counts.done} / ${TECHS.length}</div><div class="d dim">${counts.available} available now</div></div>
+        <div class="kpi"><div class="l">Researched</div><div class="v">${counts.done} / ${shown.length}</div><div class="d dim">${counts.available} available now</div></div>
         <div class="kpi"><div class="l">Exclusive tech</div><div class="v excl">${TECHS.filter(tc => S.researched[tc.id] && t < tc.market && !tc.never).length}</div><div class="d dim">yours before the industry</div></div>
       </div>
       ${S.research.length ? `<div class="card mb"><h2>In progress</h2>${S.research.map(r => {
         const tc = TECH[r.id];
         return `<div class="row wrap" style="padding:5px 0"><b class="rs-prog-name">${TECH_CATS[tc.cat].icon} ${tc.name}</b><div class="grow" style="min-width:120px">${meter(r.progress / r.days)}</div><span class="small dim nowrap">${r.days - r.progress} days left</span></div>`;
       }).join('')}</div>` : ''}
-      <div class="row wrap mb">${segBtn('rcat', Object.entries(TECH_CATS).map(([k, c]) => ({ v: k, label: `${c.icon} ${c.name}${catCounts[k] ? ` <span class="pill-n">${catCounts[k]}</span>` : ''}` })), this.cat)}</div>
+      <div class="row wrap mb">${segBtn('rcat', cats.map(k => ({ v: k, label: `${TECH_CATS[k].icon} ${TECH_CATS[k].name}${catCounts[k] ? ` <span class="pill-n">${catCounts[k]}</span>` : ''}` })), this.cat)}</div>
+      ${hidden.length ? `<div class="note mb">📦 <b>From your suppliers:</b> ${hidden.map(c => `${TECH_CATS[c].icon} ${TECH_CATS[c].name}`).join(' · ')}. New tech in these fields reaches you automatically once it is industry standard. Build the matching plant in 🏭 Factories to research it early and make it exclusive.</div>` : ''}
       <div class="row wrap mb between">${segBtn('rmode', [{ v: 'tree', label: '🌳 Tree' }, { v: 'list', label: '☰ List' }], this.mode)}
         ${this.mode === 'list' ? segBtn('rsf', [{ v: 'next', label: 'Available & upcoming' }, { v: 'all', label: 'Everything' }], this.filter) : '<span class="tiny faint">Scroll sideways through time · click a node</span>'}</div>
-      <div class="tiny faint mb">${TECH_CATS[this.cat].note}</div>
+      <div class="tiny faint mb">${note}</div>
       ${this.mode === 'tree' ? `<div class="tree-wrap card" id="treeWrap">${this.tree()}</div><div id="treeInfo" class="mt">${this.sel ? this.card(TECH[this.sel]) : ''}</div>` : this.list()}`;
     const tw = $('#treeWrap');
     if (tw && this._scrollToNow) {
@@ -335,9 +342,11 @@ const Research = {
     };
   },
   tree() {
-    const list = TECHS.filter(tc => tc.cat === this.cat && !tc.never).sort((a, b) => a.market - b.market);
+    const all = TECHS.filter(tc => tc.cat === this.cat && !tc.never).sort((a, b) => a.market - b.market);
     const never = TECHS.filter(tc => tc.cat === this.cat && tc.never);
-    const y0 = Math.max(Math.min(...list.map(tc => Math.floor(tc.market))) - 1, Math.floor(S.start) - 3), y1 = Math.max(2030, ...list.map(tc => Math.ceil(tc.market))) + 1;
+    const y0 = Math.max(Math.min(...all.map(tc => Math.floor(tc.market))) - 1, Math.floor(S.start) - 3), y1 = Math.max(2030, ...all.map(tc => Math.ceil(tc.market))) + 1;
+    // tech from before the timeline starts is folded into one count instead of piling up at the left edge
+    const list = all.filter(tc => tc.market >= y0 || techState(tc) !== 'done'), earlier = all.length - list.length;
     const PX = 64, NW = 150, NH = 34, GAP = 8, TOP = 26;
     // greedy lanes: a node takes the first lane that is free at its x
     const lanes = [];
@@ -358,6 +367,7 @@ const Research = {
       svg += `<line x1="${x}" y1="18" x2="${x}" y2="${H}" class="${y % 10 === 0 ? 'gl10' : 'gl'}"/>`;
       if (y % 2 === 0 || PX > 50) svg += `<text x="${x + 3}" y="13" class="yr">${y}</text>`;
     }
+    if (earlier) svg += `<text x="4" y="${H - 4}" class="yr">✓ ${earlier} earlier</text>`;
     svg += `<rect x="0" y="18" width="${Math.max(0, this._nowX)}" height="${H - 18}" class="past"/><line x1="${this._nowX}" y1="16" x2="${this._nowX}" y2="${H}" class="nowl"/><text x="${this._nowX + 4}" y="${H - 4}" class="nowt">now</text>`;
     // edges
     for (const tc of list) for (const r of tc.req.concat(tc.reqAny || [])) {
@@ -372,7 +382,7 @@ const Research = {
     for (const tc of list) {
       const p = pos[tc.id], st = techState(tc);
       const ex = st === 'done' && t < tc.market;
-      const cross = tc.req.concat(tc.reqAny || []).filter(r => !pos[r]);
+      const cross = tc.req.concat(tc.reqAny || []).filter(r => !pos[r] && TECH[r].cat !== this.cat);
       html += `<div class="tnode ${st} ${ex ? 'ex' : ''} ${this.sel === tc.id ? 'sel' : ''}" data-node="${tc.id}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" title="${esc(tc.desc)}">
         <span class="tn-name">${esc(tc.name)}</span><span class="tn-sub">${st === 'done' ? (ex ? '◆ exclusive' : '✓') : st === 'active' ? 'researching…' : st === 'available' ? fmtMoney(researchCost(tc)) : st === 'future' ? 'opens ' + Math.floor(tc.market - tc.lead) : '🔒'}${cross.length ? ' · ' + cross.map(r => TECH_CATS[TECH[r].cat].icon).join('') : ''}</span></div>`;
     }

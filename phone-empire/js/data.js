@@ -959,13 +959,13 @@ const TECH_CATS = {
 // ---- Playstyles -----------------------------------------------------------------
 const PLAYSTYLES = {
   brand: { name: 'Design House', icon: '🎨', tagline: 'Design phones people love and let others build them.',
-    perks: ['−40% device development cost', '+50% marketing effect', '−15% contract manufacturing fees', 'Starts with 2% brand awareness'],
+    perks: ['−40% device development cost', '+50% marketing effect', '−15% contract manufacturing fees', 'Starts with 2% brand awareness', 'Part tech comes from suppliers: research is all design, features & business'],
     devMul: 0.6, mkMul: 1.5, feeMul: 0.85, aware: 0.02 },
   maker: { name: 'Manufacturer', icon: '🏭', tagline: 'Own the factories. Build cheap and sell capacity to rivals.',
-    perks: ['Starts with a small assembly workshop', '−30% factory cost, −20% upkeep', 'In-house parts 10% cheaper', 'More and better supply contracts'],
+    perks: ['Starts with a small assembly workshop', '−30% factory cost, −20% upkeep', 'In-house parts 10% cheaper', 'More and better supply contracts', 'Full research tree: invent every part technology yourself'],
     facMul: 0.7, upkeepMul: 0.8, inMul: 0.9, contractMul: 1.6 },
   tech: { name: 'Tech Pioneer', icon: '🔬', tagline: 'Out-invent everyone. Custom parts, exclusive tech, licensing.',
-    perks: ['+50% research speed, −30% research cost', '+1 research slot', '−40% part tooling & chip tape-out cost', '+50% licensing royalties'],
+    perks: ['+50% research speed, −30% research cost', '+1 research slot', '−40% part tooling & chip tape-out cost', '+50% licensing royalties', 'Part tech comes from suppliers: build a plant to research its parts early'],
     rsSpeed: 1.5, rsCost: 0.7, rsSlot: 1, tapeMul: 0.6, royaltyMul: 1.5 },
 };
 

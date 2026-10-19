@@ -48,6 +48,23 @@ function playerAv() {
   return av;
 }
 function rivalAv(t) { return marketAv(t, S && S.licensed); }
+// Design houses and tech pioneers buy their parts: supplier-made tech (networks, displays, cameras,
+// batteries, memory, chip processes, manufacturing) reaches them on its own once it is industry
+// standard and stays out of their research tree – unless they build the plant that makes it.
+const SUPPLIED_CATS = ['network', 'display', 'camera', 'battery', 'memory', 'process', 'manufacturing'];
+const suppliedCat = cat => S.playstyle !== 'maker' && SUPPLIED_CATS.includes(cat);
+function catVisible(cat) {
+  if (!suppliedCat(cat)) return true;
+  const fac = cat === 'manufacturing' ? 'assembly' : TECH_CATS[cat].factory;
+  return S.factories.some(f => f.type === fac || (fac === 'assembly' && f.type === 'workshop'));
+}
+const suppliedOnly = tc => suppliedCat(tc.cat) && !catVisible(tc.cat);
+function supplierTech() {
+  const t = now(), got = [];
+  for (const tc of TECHS) if (!tc.never && t >= tc.market && !S.researched[tc.id] && suppliedCat(tc.cat)) { S.researched[tc.id] = tc.market; got.push(tc); }
+  return got;
+}
+const supplierWord = tc => tc.cat === 'process' ? 'Foundries offer it' : 'Suppliers sell it';
 const archGenFor = av => archGenAt(av.ok);
 function nodesForDesign() {
   const av = playerAv();
@@ -694,13 +711,15 @@ function techState(tc) {
   const t = now();
   if (S.researched[tc.id]) return 'done';
   if (S.research.some(r => r.id === tc.id)) return 'active';
+  if (suppliedOnly(tc)) return 'supplied';
   if (t < (tc.never ? tc.opens : tc.market - tc.lead)) return 'future';
   if (!reqMet(tc)) return 'locked';
   return 'available';
 }
 function missingReqs(tc) {
-  const out = tc.req.filter(id => !S.researched[id]).map(id => TECH[id].name);
-  if (tc.reqAny && !tc.reqAny.some(id => S.researched[id])) out.push(tc.reqAny.map(id => TECH[id].name).join(' or '));
+  const nm = id => TECH[id].name + (suppliedOnly(TECH[id]) ? ` (from suppliers, ${dateLabel(TECH[id].market)})` : '');
+  const out = tc.req.filter(id => !S.researched[id]).map(nm);
+  if (tc.reqAny && !tc.reqAny.some(id => S.researched[id])) out.push(tc.reqAny.map(nm).join(' or '));
   return out;
 }
 function startResearch(id) {
@@ -708,6 +727,7 @@ function startResearch(id) {
   const st = techState(tc);
   if (st === 'locked') return 'Research ' + missingReqs(tc).join(', ') + ' first.';
   if (st === 'future') return `Nobody can research this until ${dateLabel(tc.never ? tc.opens : tc.market - tc.lead)}.`;
+  if (st === 'supplied') return `${supplierWord(tc)} from ${dateLabel(tc.market)}.`;
   if (st !== 'available') return 'Already researched or in progress.';
   if (S.research.length >= researchSlots()) return 'All research slots are busy. Build an R&D Center for more.';
   const cost = researchCost(tc);
@@ -896,6 +916,9 @@ function tickDay() {
   const t = now();
 
   // research
+  const supplied = supplierTech().filter(tc => tc.k >= 1);
+  if (supplied.length > 3) addNews(`📦 Suppliers now sell ${supplied.length} new technologies.`, 'world');
+  else for (const tc of supplied) addNews(`📦 ${tc.cat === 'process' ? 'Foundries now offer' : 'Suppliers now sell'} ${tc.name}.`, 'world');
   for (const r of S.research.slice()) {
     const tc = TECH[r.id];
     r.progress += 1;

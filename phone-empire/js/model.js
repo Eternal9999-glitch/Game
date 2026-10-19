@@ -398,6 +398,18 @@ function resolveLayout(spec, geo) {
           if (c != null) { el.u = c; break; }
         }
       }
+    } else if (el.f !== 'front' && LAYOUT_TYPES[el.t].cosmetic) {
+      // the logo steps up or down, out of the way of anything functional on its face
+      const [, fh] = faceDims(el.f, geo);
+      const [, h] = layoutSize(el, spec, geo);
+      const lo = (h / 2 + 1) / fh, hi = 1 - lo;
+      const hits = v => { const r = elementRect(Object.assign({}, el, { v }), spec, geo); return placed.some(o => o.f === el.f && !LAYOUT_TYPES[o.t].cosmetic && rectsOverlap(r, elementRect(o, spec, geo))); };
+      if (hits(el.v)) {
+        for (let k = 1; k <= 16; k++) {
+          const c = [el.v - k * 0.04, el.v + k * 0.04].find(v => v >= lo && v <= hi && !hits(v));
+          if (c != null) { el.v = c; break; }
+        }
+      }
     }
     placed.push(el);
   }

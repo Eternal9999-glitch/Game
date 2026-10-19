@@ -228,19 +228,19 @@ const PartsLab = {
       </div>` : this.lockedTab(type)}
       <div class="card mt" id="labDesigns">${this.designsList(type)}</div>`;
     this.bind(el);
-    if (dr.p) this.live(true);
+    if (dr.p) this.refresh(true);
   },
   lockedTab(type) {
     if (type === 'camera') {
       const u = techUI('cam_cmos');
       return `<div class="card lab-locked"><div class="lab-locked-ic">📷</div><div><h2>No camera technology yet</h2>
-        <p class="dim">Phones get cameras when tiny CMOS image sensors become possible (standard from ${dateLabel(TECH.cam_cmos.market)}). Research the CMOS camera module to start designing optics.</p>
+        <p class="dim">Phones get cameras when tiny CMOS image sensors become possible (standard from ${dateLabel(TECH.cam_cmos.market)}). ${suppliedOnly(TECH.cam_cmos) ? 'Your suppliers bring them then, and you can start designing optics.' : 'Research the CMOS camera module to start designing optics.'}</p>
         <div class="mt-s">${lockFoot(u) || ''}</div></div></div>`;
     }
     return '<div class="card">Nothing to design yet.</div>';
   },
   // refresh the visualization and stats (not the controls) – used while dragging sliders
-  live(now_) {
+  refresh(now_) {
     const run = () => {
       this.pending = 0;
       const type = this.tab, dr = S.partDrafts[type];
@@ -685,7 +685,7 @@ const PartsLab = {
       const tab = e.target.closest('[data-labtab]');
       if (tab) { self.tab = tab.dataset.labtab; self.render(el); return; }
       const light = e.target.closest('.segbtn[data-seg="labLight"] button');
-      if (light) { self.night = light.dataset.v === 'night'; self.live(true); return; }
+      if (light) { self.night = light.dataset.v === 'night'; self.refresh(true); return; }
       const pick = e.target.closest('[data-pick]');
       if (pick) {
         const d = dr(), raw = pick.dataset.v, val = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
@@ -743,14 +743,14 @@ const PartsLab = {
     };
     el.oninput = e => {
       const inp = e.target;
-      if (inp.id === 'labName') { const d = dr(); if (d) d.name = inp.value; self.live(); return; }
+      if (inp.id === 'labName') { const d = dr(); if (d) d.name = inp.value; self.refresh(); return; }
       if (inp.type !== 'range' || !inp.dataset.path) return;
       const d = dr();
       setPath(d, inp.dataset.path, Number(inp.value));
       self.fix(self.tab, d);
       const show = $(`[data-show="${inp.dataset.path}"]`, el);
       if (show && LAB_FMT[inp.dataset.path]) show.textContent = LAB_FMT[inp.dataset.path](getPath(d, inp.dataset.path));
-      self.live();
+      self.refresh();
     };
     el.onchange = e => {
       const inp = e.target;
