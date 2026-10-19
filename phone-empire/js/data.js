@@ -567,6 +567,45 @@ const EXTRAS = [
   ['uwb', 'feat_uwb', 'Ultra-wideband', 2, 3, 0.1],
   ['sat', 'feat_sat', 'Satellite SOS', 5, 6, 0.2],
 ];
+// ---- Add-ons: optional hardware, each researched -----------------------------------------------
+// cost: $ per unit when it launches (it gets ~8%/year cheaper), vol: cm³, wt: g, pts: feature points,
+// design: style multiplier, power: average W, el: has a part you place in the Layout editor (LAYOUT_TYPES),
+// forms: 'handheld' (not car/bag), 'touch', 'keypad' or 'notflip'; needs: what else the phone must have
+const ADDONS = {
+  kblight:     { name: 'Backlit keypad', tech: 'add_kblight', cost: 0.4, vol: 0.05, wt: 0.5, pts: 1, power: 0.004, forms: 'keypad', desc: 'Keys you can find in the dark.' },
+  lanyard:     { name: 'Lanyard loop', tech: 'add_lanyard', cost: 0.1, vol: 0.05, wt: 0.5, pts: 0.3, el: true, forms: 'handheld', desc: 'A loop for a wrist strap or a charm.' },
+  led:         { name: 'Notification LED', tech: 'add_led', cost: 0.3, vol: 0.02, wt: 0.1, pts: 1, power: 0.001, el: true, forms: 'handheld', desc: 'Blinks when you missed a call or a message.' },
+  wheel:       { name: 'Jog dial / scroll wheel', tech: 'add_wheel', cost: 1.5, vol: 0.6, wt: 2, pts: 2, el: true, forms: 'handheld', desc: 'Scroll through menus and lists with your thumb.' },
+  torch:       { name: 'Flashlight LED', tech: 'add_torch', cost: 0.25, vol: 0.1, wt: 0.3, pts: 1, el: true, forms: 'handheld', desc: 'A bright LED for finding your keys in the dark.' },
+  ptt:         { name: 'Push-to-talk key', tech: 'add_ptt', cost: 0.6, vol: 0.1, wt: 0.5, pts: 1.5, el: true, forms: 'handheld', desc: 'Walkie-talkie calls at the press of a key.' },
+  camkey:      { name: 'Camera shutter key', tech: 'add_camkey', cost: 0.5, vol: 0.1, wt: 0.5, pts: 1.5, el: true, forms: 'handheld', needs: 'cam', desc: 'A two-stage shutter key, like a real camera.' },
+  tvant:       { name: 'Mobile TV tuner', tech: 'add_tvant', cost: 6, vol: 0.8, wt: 4, pts: 2, power: 0.03, el: true, forms: 'handheld', needs: 'color', desc: 'Watch broadcast TV on a pull-out telescopic antenna.' },
+  sos:         { name: 'Emergency SOS key', tech: 'add_sos', cost: 0.3, vol: 0.1, wt: 0.5, pts: 1, design: 0.995, el: true, forms: 'handheld', desc: 'One press calls for help – popular with older buyers.' },
+  trackball:   { name: 'Trackball', tech: 'add_trackball', cost: 2, vol: 0.5, wt: 2, pts: 2, el: true, forms: 'handheld', desc: 'A tiny ball for moving through menus, web pages and email.' },
+  prox:        { name: 'Proximity & light sensors', tech: 'add_prox', cost: 0.8, vol: 0.05, wt: 0.2, pts: 1.5, power: 0.001, el: true, forms: 'touch', desc: 'Turns the screen off at your ear and adapts its brightness.' },
+  mute:        { name: 'Ring/silent switch', tech: 'add_mute', cost: 0.4, vol: 0.1, wt: 0.4, pts: 1, el: true, forms: 'handheld', desc: 'Silence the phone by feel, without looking.' },
+  dualsim:     { name: 'Dual-SIM tray', tech: 'add_dualsim', cost: 1.2, vol: 0.4, wt: 1, pts: 2, el: true, forms: 'handheld', needs: 'sim', desc: 'Two numbers in one phone – huge in China, India and Africa.' },
+  solar:       { name: 'Solar panel back', tech: 'add_solar', cost: 6, vol: 1, wt: 8, pts: 1, design: 0.97, el: true, forms: 'handheld', desc: 'Tops the battery up in daylight: +4% battery life.' },
+  trackpad:    { name: 'Optical trackpad', tech: 'add_trackpad', cost: 2.5, vol: 0.4, wt: 1.5, pts: 2.5, el: true, forms: 'handheld', desc: 'A touch-sensitive nub for precise scrolling. Replaces the trackball.' },
+  action:      { name: 'Programmable key', tech: 'add_action', cost: 0.8, vol: 0.1, wt: 0.5, pts: 1.5, el: true, forms: 'handheld', desc: 'One key for any shortcut you like.' },
+  kickstand:   { name: 'Kickstand', tech: 'add_kickstand', cost: 1, vol: 0.6, wt: 5, pts: 1, design: 0.995, el: true, forms: 'handheld', needs: 'color', desc: 'Stands the phone up for video calls and films.' },
+  hdmi:        { name: 'Video-out port', tech: 'add_hdmi', cost: 1.5, vol: 0.3, wt: 1, pts: 1.5, el: true, forms: 'handheld', needs: 'color', desc: 'A micro-HDMI port: plug the phone into a TV.' },
+  baro:        { name: 'Barometer', tech: 'add_baro', cost: 0.8, vol: 0.02, wt: 0.1, pts: 1, forms: 'handheld', desc: 'Faster GPS fixes and floor-level location.' },
+  projector:   { name: 'Pico projector', tech: 'add_projector', cost: 30, vol: 3, wt: 15, pts: 3, power: 0.04, design: 0.985, el: true, forms: 'handheld', needs: 'color', desc: 'Beams your photos and videos onto any wall.' },
+  irblast:     { name: 'IR blaster', tech: 'add_irblast', cost: 0.5, vol: 0.05, wt: 0.2, pts: 1.5, el: true, forms: 'handheld', desc: 'A universal remote for TVs and air conditioners.' },
+  frontspk:    { name: 'Front-firing speakers', tech: 'add_frontspk', cost: 2, vol: 0.8, wt: 3, pts: 2, design: 1.01, el: true, forms: 'touch', desc: 'A second grille below the screen: stereo that points at you.' },
+  eink:        { name: 'E-ink back display', tech: 'add_eink', cost: 18, vol: 1.2, wt: 18, pts: 2.5, power: 0.002, design: 1.01, el: true, forms: 'touch', desc: 'An always-on, paper-like second screen on the back.' },
+  hrm:         { name: 'Heart-rate sensor', tech: 'add_hrm', cost: 3, vol: 0.1, wt: 0.5, pts: 1.5, power: 0.002, el: true, forms: 'handheld', desc: 'Measures your pulse through a fingertip.' },
+  uvsens:      { name: 'UV-index sensor', tech: 'add_uvsens', cost: 0.8, vol: 0.02, wt: 0.1, pts: 0.8, el: true, forms: 'handheld', desc: 'Warns you when the sun is strong.' },
+  alertslider: { name: 'Three-stage alert slider', tech: 'add_alertslider', cost: 0.8, vol: 0.15, wt: 0.6, pts: 1.5, el: true, forms: 'handheld', desc: 'Ring, vibrate or silent with one flick. Replaces the mute switch.' },
+  backscreen:  { name: 'Rear selfie display', tech: 'add_backscreen', cost: 14, vol: 1, wt: 10, pts: 3, power: 0.02, el: true, forms: 'notflip', needs: 'color', desc: 'A second screen on the back: selfies with the main camera.' },
+  triggers:    { name: 'Gaming shoulder triggers', tech: 'add_triggers', cost: 3, vol: 0.2, wt: 1, pts: 2, el: true, forms: 'touch', desc: 'Pressure-sensitive buttons for games in landscape.' },
+  privacy:     { name: 'Privacy kill switch', tech: 'add_privacy', cost: 0.6, vol: 0.08, wt: 0.3, pts: 1.5, el: true, forms: 'handheld', needs: 'anycam', desc: 'A hardware switch that cuts power to cameras and microphones.' },
+  thermo:      { name: 'IR thermometer', tech: 'add_thermo', cost: 4, vol: 0.1, wt: 0.4, pts: 1, el: true, forms: 'handheld', desc: 'Point at anything to read its temperature.' },
+  glyph:       { name: 'Light-strip back', tech: 'add_glyph', cost: 3, vol: 0.3, wt: 2, pts: 1.5, power: 0.01, design: 1.025, el: true, forms: 'touch', desc: 'Light strips on the back that pulse with calls and notifications.' },
+};
+// add-ons that make another one redundant (you fit one or the other)
+const ADDON_REPLACES = { trackpad: 'trackball', alertslider: 'mute' };
 const OS = {
   none:     { name: 'Hard-wired logic', pts: 0, fee: 0, tech: null },
   firmware: { name: 'Basic firmware', pts: 3, fee: 0, tech: 'os_firmware' },
@@ -603,6 +642,32 @@ const LAYOUT_TYPES = {
   action:   { name: 'Action key', faces: ['left', 'right'], w: 6, h: 3, button: true, ideal: { left: [0.85, 0.5] }, desc: 'Upper left edge.' },
   lanyard:  { name: 'Lanyard loop', faces: ['bottom', 'top'], w: 4, h: 3, ideal: { bottom: [0.88, 0.5] }, desc: 'A corner, where it will not dangle into the way.' },
   stylus:   { name: 'Stylus silo', faces: ['bottom', 'top'], w: 6, h: 5, ideal: { bottom: [0.85, 0.5] }, desc: 'A bottom corner.' },
+  // add-ons (see ADDONS); the big back panels scale with the body in layoutSize()
+  wheel:       { name: 'Scroll wheel', faces: ['right', 'left', 'top', 'front'], w: 9, h: 4, button: true, ideal: { right: [0.7, 0.5], left: [0.7, 0.5] }, desc: 'Under the thumb on the right edge.' },
+  torch:       { name: 'Flashlight LED', faces: ['top', 'back'], w: 4, h: 4, ideal: { top: [0.5, 0.5] }, desc: 'Top edge: point the phone like a torch.' },
+  ptt:         { name: 'Push-to-talk key', faces: ['left', 'right'], w: 9, h: 3, button: true, ideal: { left: [0.55, 0.5] }, desc: 'A big key on the left edge, under the index finger.' },
+  tvant:       { name: 'TV antenna', faces: ['top'], w: 5, h: 5, ideal: { top: [0.15, 0.5] }, desc: 'Top corner: it pulls out upwards.' },
+  sos:         { name: 'SOS key', faces: ['back', 'top', 'left', 'right'], w: 7, h: 7, button: true, ideal: { back: [0.5, 0.75] }, desc: 'Big and easy to find: on the back or the top.' },
+  trackball:   { name: 'Trackball', faces: ['front'], w: 6, h: 6, ideal: {}, desc: 'Between the screen and the keys, or in the chin of a touch phone.' },
+  trackpad:    { name: 'Optical trackpad', faces: ['front'], w: 7, h: 7, ideal: {}, desc: 'Between the screen and the keys, or in the chin of a touch phone.' },
+  prox:        { name: 'Proximity sensor', faces: ['front'], w: 4, h: 1.6, ideal: { front: [0.8, 0.955] }, desc: 'Next to the earpiece, where your ear is.' },
+  mute:        { name: 'Ring/silent switch', faces: ['left', 'right', 'top'], w: 6, h: 2.6, button: true, ideal: { left: [0.82, 0.5], right: [0.82, 0.5] }, desc: 'Top of an edge, where a finger finds it blindly.' },
+  dualsim:     { name: 'Second SIM tray', faces: ['left', 'right', 'top', 'back'], w: 14, h: 2.5, ideal: { left: [0.35, 0.5], right: [0.2, 0.5] }, desc: 'Out of the grip, near the first one.' },
+  solar:       { name: 'Solar panel', faces: ['back'], w: 40, h: 40, ideal: { back: [0.5, 0.3] }, desc: 'The lower back, away from the camera and the fingers.' },
+  kickstand:   { name: 'Kickstand', faces: ['back'], w: 30, h: 4, ideal: { back: [0.5, 0.25] }, desc: 'Across the lower back.' },
+  hdmi:        { name: 'Video-out port', faces: ['bottom', 'top', 'left', 'right'], w: 6.5, h: 2.5, port: true, ideal: { top: [0.3, 0.5], bottom: [0.25, 0.5] }, desc: 'Top or bottom edge, out of the hand.' },
+  projector:   { name: 'Projector lens', faces: ['top', 'back'], w: 9, h: 6, ideal: { top: [0.5, 0.5] }, desc: 'Top edge, aimed at a wall. Needs a body at least 6 mm thick.' },
+  irblast:     { name: 'IR blaster', faces: ['top'], w: 3.5, h: 2.5, ideal: { top: [0.7, 0.5] }, desc: 'On the top edge, pointing at the TV.' },
+  frontspk:    { name: 'Front speaker grille', faces: ['front'], w: 12, h: 2.5, ideal: { front: [0.5, 0.03] }, desc: 'Below the screen, facing you.' },
+  eink:        { name: 'E-ink display', faces: ['back'], w: 50, h: 80, ideal: { back: [0.5, 0.42] }, desc: 'Most of the back, below the cameras.' },
+  hrm:         { name: 'Heart-rate sensor', faces: ['back'], w: 6, h: 6, ideal: { back: [0.5, 0.72] }, desc: 'Next to the camera, where a fingertip rests.' },
+  uvsens:      { name: 'UV sensor', faces: ['back', 'front'], w: 3, h: 3, ideal: { back: [0.62, 0.78] }, desc: 'Anywhere that sees the sky.' },
+  alertslider: { name: 'Alert slider', faces: ['left', 'right'], w: 8, h: 2.6, button: true, ideal: { right: [0.8, 0.5], left: [0.82, 0.5] }, desc: 'Top of an edge, above the volume or power key.' },
+  backscreen:  { name: 'Rear display', faces: ['back'], w: 36, h: 22, ideal: { back: [0.5, 0.55] }, desc: 'Below the rear cameras.' },
+  triggers:    { name: 'Shoulder triggers', faces: ['right', 'left'], w: 40, h: 2, ideal: { right: [0.5, 0.5] }, desc: 'Along the right edge – the top when you hold it sideways.' },
+  privacy:     { name: 'Privacy switch', faces: ['left', 'right', 'top'], w: 5, h: 2.4, button: true, ideal: { left: [0.35, 0.5], right: [0.35, 0.5] }, desc: 'Anywhere on an edge, out of the grip.' },
+  thermo:      { name: 'IR thermometer', faces: ['back', 'top'], w: 4, h: 4, ideal: { back: [0.62, 0.86] }, desc: 'Beside the rear camera, pointing away from you.' },
+  glyph:       { name: 'Light strips', faces: ['back'], w: 40, h: 60, cosmetic: true, ideal: { back: [0.5, 0.5] }, desc: 'Around the back. Purely decorative, so other parts may sit inside it.' },
 };
 const LAYOUT_FACES = ['front', 'back', 'top', 'bottom', 'left', 'right'];
 
@@ -862,6 +927,26 @@ T('form_flip', 'design', 'Flip phones', 1989.3, 1.2, 70, 'A hinged flap – late
 T('int_asic', 'design', 'Custom ASICs', 1989, 1, 60, 'Application-specific chips: −60%. Pocketable flip phones arrive.', ['int_smt']);
 T('form_candybar', 'design', 'Pocket candybar phones', 1991.5, 1.2, 70, 'A slim bar that fits in a pocket.', ['int_smt']);
 T('sim_full', 'design', 'SIM cards', 1991.5, 0.6, 40, 'Your number on a smart card: swap phones freely (GSM).', ['net_gsm']);
+T('add_kblight', 'design', 'Backlit keypads', 1994, 0.4, 25, 'LEDs under the keys: dial in the dark.');
+T('add_lanyard', 'design', 'Lanyard loops', 1996.5, 0.3, 20, 'A loop for wrist straps and charms.');
+T('add_wheel', 'design', 'Jog dials & scroll wheels', 1999.3, 0.6, 35, 'A thumb wheel on the edge to scroll through menus.');
+T('add_torch', 'design', 'Flashlight LEDs', 2003.3, 0.3, 20, 'A bright white LED on the top edge.');
+T('add_ptt', 'design', 'Push-to-talk keys', 2003.5, 0.5, 30, 'A walkie-talkie key: instant calls to a group.');
+T('add_camkey', 'design', 'Camera shutter keys', 2004.5, 0.4, 25, 'A two-stage shutter key on the edge.', ['cam_cmos']);
+T('add_sos', 'design', 'Emergency SOS keys', 2006.3, 0.3, 20, 'A big key that calls for help.');
+T('add_trackball', 'design', 'Trackballs', 2006.7, 0.6, 35, 'A tiny rolling ball for navigation.');
+T('add_mute', 'design', 'Ring/silent switches', 2007.5, 0.3, 20, 'A hardware switch to silence the phone.');
+T('add_dualsim', 'design', 'Dual-SIM phones', 2007.8, 0.6, 35, 'Room for two SIM cards and two numbers.', ['sim_mini']);
+T('add_solar', 'design', 'Solar charging panels', 2009.5, 0.8, 45, 'Photovoltaic cells on the back keep the battery topped up.');
+T('add_trackpad', 'design', 'Optical trackpads', 2009.8, 0.5, 30, 'A touch-sensing nub replaces the trackball.', ['add_trackball']);
+T('add_action', 'design', 'Programmable keys', 2010.5, 0.4, 25, 'A spare key the owner assigns to any shortcut.');
+T('add_kickstand', 'design', 'Kickstands', 2010.5, 0.4, 25, 'A fold-out stand on the back.');
+T('add_hdmi', 'design', 'Video-out ports', 2010.6, 0.5, 30, 'Micro-HDMI: play your videos on a TV.', ['disp_color']);
+T('add_alertslider', 'design', 'Three-stage alert sliders', 2016.4, 0.4, 25, 'Ring, vibrate or silent with one flick.', ['add_mute']);
+T('add_backscreen', 'design', 'Rear selfie displays', 2017.9, 1, 60, 'A second display on the back.', ['disp_color']);
+T('add_triggers', 'design', 'Gaming shoulder triggers', 2018.9, 0.6, 35, 'Pressure-sensitive buttons along the edge.', ['form_touch']);
+T('add_privacy', 'design', 'Privacy kill switches', 2019.5, 0.5, 30, 'Cut power to cameras and microphones in hardware.', ['cam_cmos']);
+T('add_glyph', 'design', 'Light-strip backs', 2022.6, 0.6, 35, 'LED light strips on a transparent back.', ['form_touch']);
 T('int_rfic', 'design', 'RF integrated circuits', 1993, 1.1, 60, 'Radio transceivers on silicon: −50%.', ['int_asic']);
 T('jack_25', 'design', '2.5 mm headset jack', 1995, 0.4, 25, 'Plug in a hands-free headset.');
 T('sim_mini', 'design', 'Mini-SIM', 1996, 0.5, 30, 'Stamp-sized SIM cards.', ['sim_full']);
@@ -905,11 +990,13 @@ T('feat_sms', 'features', 'Text messaging (SMS)', 1993, 1, 60, '160 characters a
 T('feat_vibra', 'features', 'Vibrating alert', 1996, 0.5, 30, 'A tiny motor buzzes silently in your pocket.');
 T('feat_games', 'features', 'Built-in games', 1997.5, 0.6, 35, 'Snake, anyone?', ['os_firmware']);
 T('feat_ir', 'features', 'Infrared port', 1998, 0.5, 30, 'Beam contacts to another phone.');
+T('add_led', 'features', 'Notification LEDs', 1998.5, 0.4, 25, 'A blinking light for missed calls and messages.');
 T('feat_wap', 'features', 'Mobile web (WAP)', 1999.5, 0.8, 45, 'The internet, one line at a time.', ['feat_sms']);
 T('feat_poly', 'features', 'Polyphonic ringtones', 2001.5, 0.6, 35, 'Ringtones with real chords.');
 T('os_feature', 'features', 'Feature phone OS', 2002, 1.5, 80, 'Downloadable games, apps and themes.', ['os_firmware']);
 T('feat_bt', 'features', 'Bluetooth', 2002.5, 0.8, 45, 'Wireless headsets and file sharing.');
 T('feat_fm', 'features', 'FM radio', 2003, 0.5, 30, 'The headset cord is the antenna.');
+T('add_tvant', 'features', 'Mobile TV tuners', 2005.5, 0.9, 50, 'Broadcast TV on your phone (DMB / DVB-H / 1seg).', ['disp_color']);
 T('os_smart', 'features', 'Smartphone OS', 2004, 2, 100, 'Multitasking, email, office documents.', ['os_firmware'], { lead: 10 });
 T('feat_mp3', 'features', 'Music player', 2004.5, 0.8, 45, 'Your music collection in your pocket.');
 T('feat_wifi', 'features', 'Wi-Fi', 2006, 0.8, 45, 'Fast internet at home and in cafés.');
@@ -922,6 +1009,15 @@ T('nav_capkeys', 'features', 'Capacitive navigation keys', 2009.8, 0.5, 30, 'Tou
 T('nav_onscreen', 'features', 'On-screen navigation bar', 2011.9, 0.6, 35, 'Navigation keys drawn on the display: no chin needed, but they eat screen space.', ['os_touch']);
 T('nav_caphome', 'features', 'Solid-state home button', 2016.7, 0.6, 35, 'A pressure-sensing home button with a haptic click: no moving parts, easier to waterproof.', ['nav_home', 'feat_haptic']);
 T('nav_gesture', 'features', 'Gesture navigation', 2017.7, 0.8, 45, 'Swipe from the edges instead of pressing keys: the whole front can be screen.', ['nav_onscreen']);
+T('add_prox', 'features', 'Proximity & light sensors', 2007.4, 0.5, 30, 'Screen off at your ear, brightness that adapts.', ['form_touch']);
+T('add_baro', 'features', 'Barometers', 2011.8, 0.4, 25, 'Air pressure for faster GPS fixes and floor detection.', ['feat_gps']);
+T('add_projector', 'features', 'Pico projectors', 2012.5, 1.2, 70, 'A tiny laser projector in the phone.', ['disp_color']);
+T('add_irblast', 'features', 'IR blasters', 2013.2, 0.4, 25, 'Infrared LED that controls TVs.');
+T('add_frontspk', 'features', 'Front-firing speakers', 2013.2, 0.6, 35, 'Stereo speakers facing the listener.', ['feat_stereo']);
+T('add_eink', 'features', 'E-ink back displays', 2013.9, 1.2, 70, 'An electronic-paper screen on the back.', ['form_touch']);
+T('add_hrm', 'features', 'Heart-rate sensors', 2014.3, 0.6, 35, 'An optical pulse sensor.');
+T('add_uvsens', 'features', 'UV-index sensors', 2014.8, 0.3, 20, 'Measures ultraviolet sunlight.');
+T('add_thermo', 'features', 'IR thermometers', 2020.5, 0.5, 30, 'A contact-free infrared thermometer.');
 T('feat_nfc', 'features', 'NFC payments', 2011, 0.8, 45, 'Tap-to-pay radio.');
 T('feat_stylus', 'features', 'Stylus input', 2011.8, 0.8, 45, 'A pen that lives in the phone.', ['disp_capacitive']);
 T('os_modern', 'features', 'Modern mobile OS', 2013, 2, 100, 'Polished, secure, cloud-synced.', ['os_touch']);
