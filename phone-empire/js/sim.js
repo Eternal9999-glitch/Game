@@ -238,10 +238,14 @@ function stdOk(av) { return id => av.std(id); }
 function defaultDraft(cat, t) {
   const av = playerAv(), ok = stdOk(av);
   const form = cat === 'tablet' ? 'slate' : bestForm(ok, t);
-  const d = buildSpec(cat, t, ok, form, 1, null);
+  // a radio for the biggest markets (covering about three quarters of buyers), not every network on earth
+  const rs = regionShares(t), regs = [];
+  let cov = 0;
+  for (const r of REGION_ORDER.slice().sort((a, b) => rs[b] - rs[a])) { if (cov >= 0.72) break; regs.push(r); cov += rs[r]; }
+  const d = buildSpec(cat, t, ok, form, 1, regs);
   d.int = integrationLevel(av.ok);
   const chips = vendorChipsAvailable(t).sort((a, b) => b.cpu - a.cpu);
-  d.chip = { kind: 'vendor', id: (chips.find(c => c.tier !== 'flagship') || chips[0] || VENDOR_CHIPS[0]).id };
+  d.chip = { kind: 'vendor', id: (chips.find(c => c.tier === 'mid') || chips.find(c => c.tier !== 'flagship') || chips[0] || VENDOR_CHIPS[0]).id };
   d.name = '';
   const cost = productCosts(d, t, 'pearl').est;
   d.price = Math.max(Math.round(segBudget(cat, 'mid', t) * 0.85 / 10) * 10 - 1, Math.round(cost / (1 - RETAIL_CUT) * 1.3 / 10) * 10 - 1);
@@ -286,7 +290,7 @@ function newGame(opts) {
   addNews('Tip: design a phone in the Phone Lab and build a prototype. Then pitch friends & family and angels in the Investors tab.', 'info');
 }
 function emptyMonth() {
-  return { revenue: 0, b2b: 0, cogs: 0, sold: 0, build: 0, upkeep: 0, rnd: 0, staff: 0, marketing: 0, overhead: 0, lines: 0, interest: 0, tax: 0, capex: 0, dev: 0, spare: 0, units: 0, funding: 0, penalty: 0,
+  return { revenue: 0, b2b: 0, cogs: 0, sold: 0, build: 0, upkeep: 0, rnd: 0, staff: 0, service: 0, marketing: 0, overhead: 0, lines: 0, interest: 0, tax: 0, capex: 0, dev: 0, spare: 0, units: 0, funding: 0, penalty: 0,
     royalty: 0, warranty: 0, logistics: 0, wafers: 0 };
 }
 function newFactory(type, nm, status, invested) {
@@ -318,7 +322,8 @@ function makeRivalPhone(r, cat, seg, tl, gen) {
   for (const k of ['cpu', 'gpu', 'cam', 'disp', 'style']) raw[k] *= sk;
   const c = ev.costs;
   const parts = c.display + Object.values(c.cams).reduce((a, b) => a + b, 0) + c.battery + c.memory + c.radio;
-  const bom = (parts * 1.25 + (playerChip ? chipPrice : c.chip || 0) + c.body + c.misc + c.os + c.labor) * 0.9;
+  // rivals buy parts from the same suppliers you do (big brands get a slightly better deal)
+  const bom = (parts * SUPPLIER_MARKUP * 0.95 + (playerChip ? chipPrice : c.chip || 0) + c.body + c.misc + c.os + c.labor) * 0.95;
   const B = segBudget(cat, seg, tl);
   const target = Math.max(B * r.priceMul * (0.95 + Math.random() * 0.1), bom / (1 - RETAIL_CUT) * 1.12);
   const price = roundPrice(target);
@@ -517,7 +522,7 @@ function runEvents() {
 const reviewMul = r => Math.exp(0.28 * ((r == null ? 6.5 : r) - 6.5));
 const userMul = u => (u == null ? 1 : Math.exp(0.12 * (u - 6.5)));
 // pricing power: a known, trusted brand can ask more for the same phone than a newcomer
-const brandPower = (aware, rep) => clamp(0.85 + 0.3 * aware + 0.03 * (rep - 7.5), 0.72, 1.2);
+const brandPower = (aware, rep) => clamp(0.9 + 0.25 * aware + 0.03 * (rep - 7.5), 0.8, 1.2);
 const playerBrandPower = () => brandPower(S.aware, S.rep);
 // the market's brand-neutral price for a quality level: a local linear fit through the rivals on sale
 const _fair = {};
@@ -1532,7 +1537,8 @@ function endOfMonth() {
   spend(upkeep, 'upkeep');
   const active = S.products.filter(p => p.status === 'active').length;
   const partLines = partRecords().filter(r => r.status === 'ready' && (r.madeMonth || r.stock > 0)).length;
-  spend((10e3 + 90e3 * active + 15e3 * partLines) * ecoNow() + 0.12 * (m.revenue + m.b2b), 'overhead');   // engineers, support, sales & admin, offices
+  spend((10e3 + 90e3 * active + 15e3 * partLines) * ecoNow(), 'overhead');   // offices, admin and support for every product and part line
+  spend(0.07 * (m.revenue + m.b2b), 'service');                             // sales commissions & customer service
   // contract manufacturer line fees for every line that ran this month
   const usedMakers = new Set();
   for (const p of S.products) { if (p.lineUsed && p.lineMaker && p.lineMaker !== 'own') usedMakers.add(p.lineMaker + '|' + p.id); p.lineUsed = false; }
@@ -1639,7 +1645,7 @@ function endOfMonth() {
   // benchmark crowns
   if (S.products.some(p => p.status === 'active') && benchLeaders().some(b => b.mine)) completeGoal('bench1');
   // close the books (22% corporate tax, losses carry forward)
-  const pretax = m.revenue + m.b2b + m.spare - m.cogs - m.sold - m.upkeep - m.rnd - (m.staff || 0) - m.marketing - m.overhead - m.lines - m.interest - m.dev - m.penalty
+  const pretax = m.revenue + m.b2b + m.spare - m.cogs - m.sold - m.upkeep - m.rnd - (m.staff || 0) - (m.service || 0) - m.marketing - m.overhead - m.lines - m.interest - m.dev - m.penalty
     - (m.royalty || 0) - (m.warranty || 0) - (m.logistics || 0);
   let taxable = pretax;
   if (taxable > 0) { const use = Math.min(S.taxLoss, taxable); taxable -= use; S.taxLoss -= use; } else S.taxLoss -= taxable;

@@ -36,13 +36,13 @@ function costScale(t) {
     const rows = [];
     for (let y = FIRST_YEAR; y <= 2060; y++) {
       const tt = y + 0.5, ok = id => !id || !TECH[id] || TECH[id].market <= tt;
-      // a mid-range phone's parts at ~46% of a mid-range price, a flagship's at ~44% of a premium price
+      // a mid-range phone's parts at ~39% of a mid-range price, a flagship's at ~37% of a premium price
       const need = (seg, share) => {
         const s = rivalSpec('phone', seg, tt, null, ok, null), chip = vendorChipById(s.chip.id), c = evalPhone(s, tt, chip).costs;
         const bom = chipSilicon(chip, tt) + c.display + Object.values(c.cams).reduce((a, b) => a + b, 0) + c.battery + c.memory + c.radio + c.body + c.misc + c.os + c.labor;
         return Math.log(share * segBudget('phone', seg, tt) / Math.max(1, bom));
       };
-      rows.push((need('mid', 0.46) + need('premium', 0.44)) / 2);
+      rows.push((need('mid', 0.39) + need('premium', 0.37)) / 2);
     }
     _rawCosts = false;
     const sm = rows.map((v, i) => { let a = 0, n = 0; for (let k = Math.max(0, i - 3); k <= Math.min(rows.length - 1, i + 3); k++) { a += rows[k]; n++; } return a / n; });
@@ -205,11 +205,21 @@ function processorCost(stats, t) {
 const marketNetGen = t => bestNetGen(id => !id || t >= TECH[id].market);
 function vendorChipCounts(tier, tr) {
   const yrs = Math.max(0, tr - 2008), little = tr >= 2011.5;
-  const lagGen = { flagship: 0, mid: 1, budget: 2 }[tier];
+  const lagGen = CHIP_TIERS[tier].lag;
   const modemGen = tr >= 1997 ? marketNetGen(tr - lagGen) : 0;
   const dsp = tr >= 1990 && tr < 1997 ? 1 : 0;
-  if (tr < 1997) return { pcore: 1, cache: tr >= 1988 ? 2 : 1, io: 1, dsp, modemGen: 0 };
+  // early logic chips: tiers differ in cache, DSP and memory interfaces
+  if (tr < 1997) {
+    const top = tier === 'flagship' || tier === 'plus' || tier === 'gaming';
+    return { pcore: 1, cache: (tr >= 1988 ? 2 : 1) + (top ? 1 : 0) - (tier === 'budget' ? 1 : 0) || 1, io: top && tr >= 1985 ? 2 : 1, dsp: dsp || (top && tr >= 1986 ? 1 : 0), modemGen: 0 };
+  }
   const flagGpu = tr < 2004 ? 0 : Math.min(5, 1 + Math.floor(yrs / 5));
+  if (tier === 'gaming') return {
+    pcore: tr < 2012 ? 2 : 4, ecore: little ? 2 : 0, gpu: Math.max(1, flagGpu + 2), cache: 6 + Math.floor(yrs / 4),
+    npu: tr >= 2021 ? 1 : 0, isp: 1, io: 2, modem: 1, media: 1, modemGen };
+  if (tier === 'plus') return {
+    pcore: tr < 2011 ? 1 : tr < 2014 ? 2 : 3, ecore: little ? 4 : 0, gpu: tr < 2005 ? 0 : Math.max(1, flagGpu), cache: 3 + Math.floor(yrs / 4.5),
+    npu: tr >= 2018.5 ? 1 : 0, isp: tr < 2003 ? 0 : tr < 2008 ? 1 : 2, io: tr >= 2012 ? 2 : 1, modem: 1, media: tr >= 2008 ? 1 : 0, modemGen };
   if (tier === 'flagship') return {
     pcore: tr < 2010 ? 1 : tr < 2012 ? 2 : 4, ecore: little ? 4 : 0, gpu: flagGpu, cache: tr < 2004 ? 2 + (tr >= 2001 ? 1 : 0) : 5 + Math.floor(yrs / 4),
     npu: tr >= 2021 ? 2 : tr >= 2017.7 ? 1 : 0, isp: tr < 2002 ? 0 : tr < 2006 ? 1 : 2, io: tr >= 2010 ? 2 : 1, modem: 1, media: tr >= 2004.5 ? 1 : 0, modemGen };
@@ -227,11 +237,12 @@ const VENDOR_CHIPS = [];
     for (const v of VENDORS) {
       v.tiers.forEach((tier, ti) => {
         const tr = y + (v.month + ti * 0.4) / 12;
-        if (tr < 1994 && v.id !== 'quasar') return;        // one logic-chip maker in the early days
-        const lag = { flagship: 0, mid: 1, budget: 2 }[tier];
+        if (tr < v.from || (v.to && tr > v.to)) return;
+        const lag = CHIP_TIERS[tier].lag;
         const node = frontierNode(tr, tr < 1995 ? lag + 1 : lag);
         const arch = Math.max(1, marketArchGen(tr) - lag);
-        const counts = vendorChipCounts(tier, tr);
+        const counts = Object.assign({}, vendorChipCounts(tier, tr)), bias = v.bias || {};
+        for (const k of ['cache', 'gpu', 'ecore', 'npu']) if (bias[k] && (counts[k] || (k !== 'ecore' && k !== 'npu') || tr >= 2008)) counts[k] = Math.max(0, (counts[k] || 0) + bias[k]);
         const units = [];
         let cells = 0;
         for (const type of BLOCK_ORDER) {
@@ -241,9 +252,9 @@ const VENDOR_CHIPS = [];
           }
         }
         const area = Math.round(cells * CELL_MM2 * 1.25);
-        const clock = +(node.fnom * ({ flagship: 1, mid: 0.95, budget: 0.88 }[tier])).toFixed(5);
-        const st = evalChipCore({ nm: node.nm, arch, clock, area, units, hotT: 85, modemGen: counts.modemGen, fill: 0.8, b64: tr >= 2013.7, brt: tr >= 2023.3 && tier === 'flagship', dvfs: tr >= 1999 });
-        const digit = { flagship: 8, mid: 6, budget: 4 }[tier];
+        const clock = +(node.fnom * CHIP_TIERS[tier].clk * (bias.clk || 1)).toFixed(5);
+        const st = evalChipCore({ nm: node.nm, arch, clock, area, units, hotT: 85, modemGen: counts.modemGen, fill: 0.8, b64: tr >= 2013.7, brt: tr >= 2023.3 && (tier === 'flagship' || tier === 'gaming'), dvfs: tr >= 1999 });
+        const digit = CHIP_TIERS[tier].digit;
         VENDOR_CHIPS.push(Object.assign(st, {
           id: `${v.id}-${y}-${tier}`, kind: 'vendor', vendor: v.name, tier, release: tr,
           name: `${v.name} ${v.series} ${digit}${String(y).slice(2)}`, counts,
@@ -260,12 +271,12 @@ function vendorChipsAvailable(t) { return VENDOR_CHIPS.filter(c => c.release <= 
 // The newest flagship carries most of that premium (a share of what premium phones sell for);
 // slower and older chips get cheap fast. Your own chips pay only for the silicon.
 const CHIP_PREMIUM = [[1973, 0.06], [1990, 0.08], [2000, 0.11], [2007, 0.14], [2012, 0.16], [2020, 0.17], [2040, 0.17]];
-const TIER_PREMIUM = { flagship: 1, mid: 0.6, budget: 0.3 };
+const TIER_PREMIUM = { gaming: 1.05, flagship: 1, plus: 0.8, mid: 0.6, budget: 0.3 };
 // the silicon, packaging and IP of a vendor chip (what it costs to make, at the market's price level)
 function chipSilicon(chip, t) {
   if (!chip || chip.kind !== 'vendor') return 0;
   const e = chipEconomics(chip.area, chip.nm, t);
-  return ((e.waferPrice / e.good) * 1.25 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1)) * costScale(t);
+  return ((e.waferPrice / e.good) * 1.25 + e.pack + CHIP_TIERS[chip.tier].ip * (t < 1995 ? 0.5 : 1)) * costScale(t);
 }
 function vendorChipPrice(chip, t) {
   const rel = clamp(chip.cpu / Math.max(1e-12, frontierCpu(t)), 0, 1);
@@ -1228,7 +1239,10 @@ for (const id of ['xbat_charger', 'xbat_gauge', 'xbat_memfix', 'xbat_nimh', 'xba
 for (const id of ['xmem_nvram', 'xmem_eeprom', 'xmem_pack']) REFINE.memory.push(id);
 REFINE.design.push('xdes_ergo', 'xdes_rubber', 'xdes_mould', 'xdes_color', 'xdes_curve', 'xdes_soft', 'xdes_hinge2', 'xdes_seal');
 REFINE.features.push('xfeat_redial', 'xfeat_speed', 'xfeat_lock', 'xfeat_clock', 'xfeat_calc', 'xfeat_ring', 'xfeat_cal', 'xfeat_menu', 'xfeat_t9');
-const REFINE_GAIN = { display: 0.02, camera: 0.025, battery: 0.025, memory: 0.02, network: 0.02, design: 0.015, features: 0.025 };
+const REFINE_GAIN = { display: 0.025, camera: 0.025, battery: 0.03, memory: 0.025, network: 0.03, design: 0.03, features: 0.03 };
+// what each refinement does, shown on its research card
+const REFINE_WHAT = { display: 'display score', camera: 'camera score', battery: 'battery life', memory: 'storage speed', network: 'network speed', design: 'design score', features: 'feature score' };
+for (const cat in REFINE) for (const id of REFINE[cat]) if (TECH[id]) TECH[id].effect = `+${Math.round(REFINE_GAIN[cat] * 100)}% ${REFINE_WHAT[cat]} on your phones`;
 function refineMul(cat, spec, t) {
   let n = 0;
   const mine = !spec.npc && typeof S !== 'undefined' && S && S.researched;

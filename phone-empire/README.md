@@ -122,8 +122,8 @@ Keys: `Space` pause/resume · `1`–`3` game speed.
 | **Bodies** | The body is fitted around the parts. Thickness grows with internal volume up to a limit for the form factor, then the body grows taller. Weight, volume, screen-to-body ratio and heat dissipation follow from it. |
 | **Market** | Historical handset volumes (≈1,500/month in 1973 → ~160M at the 2016 peak), four buyer segments and five regions. Buyers weigh quality (against a smooth curve of what a flagship delivers), price, awareness, shelf space, reviews and coverage – and check a **fair price** (what rivals ask for the same quality, adjusted for brand: a newcomer must undercut), **deal-breakers** (far behind on something the segment cares about, no camera, an old network) and trends. Rivals cut prices in segments you are winning. Demand drifts toward its target over a few weeks. |
 | **Reviews** | Five outlets score each category against the phone's price segment plus value for money, each with its own priorities; owners' ratings then drift with value and reliability and feed your reputation. |
-| **Money** | Supplier markups, retail (30% of the sticker price), patent royalties (2.5–4.5% by network generation), warranty & returns, freight & duties, line and tooling fees, staff per device and part line, sales & admin (9% of revenue), 22% tax, investor dilution and an overdraft limit. A well-run phone business nets roughly 5–12%. |
-| **Rivals** | Ten brands enter and leave over the decades in their own regions. Each releases a model per segment every year, built from industry-standard parts, then lowers its price gradually. |
+| **Money** | Supplier markups, retail (33% of the sticker price, 25% once you sell online), patent royalties (1–4.5% by network generation), warranty & returns, freight & duties, line and tooling fees, offices & product support (a base plus each device and part line), sales commissions & customer service (7% of sales), salaries for the staff you hire, 22% tax, investor dilution and an overdraft limit. A well-run phone business nets roughly 10–20%. |
+| **Rivals** | 19 brands enter and leave over the decades in their own regions. Each releases a model per segment about every 1.8 years, built from the same suppliers you buy from, then lowers its price gradually. |
 
 ## Code layout
 
@@ -160,3 +160,20 @@ Keys: `Space` pause/resume · `1`–`3` game speed.
   have its own ad budget (💰 Finance → 📺 Device ads). The calendar now ticks day by day.
 - **Phone Lab:** 32×32 logo canvas with brush sizes and fill, a snap-to-grid option in the layout editor; drawn key shapes are gone
   (per-key preset shapes stay).
+
+## Round 8 changes (prices, overhead & part variety)
+
+- **Fairer prices:** buyers now expect to pay more for the same phone. A mid-range phone's parts are about 39% of its price (was 46%),
+  early network standards are much cheaper, extra standards on a multi-band radio cost a quarter of a main one, rivals pay the same
+  supplier markups you do, and a new brand's price handicap is smaller.
+- **No phantom staff bill:** the old "Overhead & staff" line (offices plus 12% of sales) is split into **Offices & product support**
+  and **Sales commissions & customer service (7%)**, and both are smaller. **Staff salaries** shows only the people you hire.
+- **Upgrades that show:** every refinement (e.g. Ergonomic handsets) now adds +2.5–3% to its area, and each research card says what it
+  does, e.g. "✚ +3% design score on your phones".
+- **Real supplier variety:** each company has its own product styles. Displays include 1-, 2- and 3-line segment panels, square, tall,
+  wide, compact and jumbo shapes, sharp or coarse, eco or bright. Batteries come safe, dense, thin, bulky, fast-charge or long-life.
+  Memory comes RAM-heavy or storage-heavy, fast, dense or low-power. Radios come world-band, regional (North America, Europe, Asia)
+  or low-power. Even in the 1970s and 1980s the catalogs differ in more than price.
+- **More chips:** six chip makers (Corvex and Tessera Logic early on, Vortex for gaming later), each with its own character
+  (frugal low clocks, big caches, efficiency cores, strong graphics/AI, hot gaming clocks). New *upper mid* and *gaming* tiers,
+  and a tier filter in the chip list.

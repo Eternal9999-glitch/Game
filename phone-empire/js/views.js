@@ -450,7 +450,7 @@ const Research = {
       const p = pos[tc.id], st = techState(tc);
       const ex = (st === 'done' && t < tc.market) || (S.breakthroughs && S.breakthroughs[tc.id] && st !== 'done');
       const cross = tc.req.concat(tc.reqAny || []).filter(r => !pos[r] && TECH[r].cat !== this.cat);
-      html += `<div class="tnode ${st} ${ex ? 'ex' : ''} ${this.sel === tc.id ? 'sel' : ''}" data-node="${tc.id}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" title="${esc(tc.desc)}">
+      html += `<div class="tnode ${st} ${ex ? 'ex' : ''} ${this.sel === tc.id ? 'sel' : ''}" data-node="${tc.id}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" title="${esc(tc.desc + (tc.effect ? ' (' + tc.effect + ')' : ''))}">
         <span class="tn-name">${esc(tc.name)}</span><span class="tn-sub">${st === 'done' ? (ex ? '💡 early' : '✓') : st === 'active' ? 'researching…' : st === 'available' ? (ex ? '💡 ' : '') + fmtRP(researchCost(tc)) : st === 'future' ? 'invented ' + Math.floor(tc.market) : '🔒'}${cross.length ? ' · ' + cross.map(r => TECH_CATS[TECH[r].cat].icon).join('') : ''}</span></div>`;
     }
     html += '</div>';
@@ -473,7 +473,7 @@ const Research = {
     else foot = `<span class="tag warn">needs ${esc(missingReqs(tc).join(', '))}</span>`;
     const when = tc.never ? 'In-house only' : t < tc.market ? `💡 Breakthrough – the industry gets it ${dateLabel(tc.market)}` : `Industry standard since ${dateLabel(tc.market)}`;
     return `<div class="rs ${st}"><div class="row between"><span class="nm">${TECH_CATS[tc.cat].icon} ${tc.name}</span><span class="tiny faint">${tc.never ? '' : Math.floor(tc.market)}</span></div>
-      <div class="ds">${tc.desc}</div><div class="tiny faint">${when}</div><div class="rs-foot">${foot}</div></div>`;
+      <div class="ds">${tc.desc}</div>${tc.effect ? `<div class="tiny good">✚ ${tc.effect}</div>` : ''}<div class="tiny faint">${when}</div><div class="rs-foot">${foot}</div></div>`;
   },
 };
 registerView('research', Research);
@@ -722,7 +722,7 @@ const Finance = {
     const rows = [['Device sales (after retail cut)', 'revenue', 1], ['From other brands (contracts, chips, royalties)', 'b2b', 1], ['Spare capacity sales', 'spare', 1],
       ['Cost of devices sold', 'sold', -1], ['Contract & chip production', 'cogs', -1], ['Manufacturer line fees', 'lines', -1], ['Factory upkeep', 'upkeep', -1], ['Research', 'rnd', -1], ['Staff salaries', 'staff', -1], ['Development, tooling & tape-outs', 'dev', -1],
       ['Patent royalties', 'royalty', -1], ['Warranty & returns', 'warranty', -1], ['Freight, duties & logistics', 'logistics', -1],
-      ['Marketing', 'marketing', -1], ['Overhead & staff', 'overhead', -1], ['Interest', 'interest', -1], ['Penalties & recalls', 'penalty', -1], ['Corporate tax (22%)', 'tax', -1]];
+      ['Marketing', 'marketing', -1], ['Offices & product support', 'overhead', -1], ['Sales commissions & customer service (7%)', 'service', -1], ['Interest', 'interest', -1], ['Penalties & recalls', 'penalty', -1], ['Corporate tax (22%)', 'tax', -1]];
     const mkt = marketSize('phone', now()) * segBudget('phone', 'mid', now());
     const maxMk = Math.max(5e3, Math.ceil(Math.max(avgRevenue() * 0.3, mkt * 0.004, S.marketing * 1.5) / 1e3) * 1e3);
     el.innerHTML = `

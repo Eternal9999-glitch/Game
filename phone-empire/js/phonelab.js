@@ -88,11 +88,16 @@ function partRoom(type, st) {
 }
 function partPerfLine(type, p, st) {
   switch (type) {
-    case 'display': return p.emit === 'none' ? 'No display' : `${p.size.toFixed(1)}" ${DISP_EMIT[p.emit].name.replace(' liquid crystal', ' LCD')}${st.seg ? '' : ` · ${st.ppi} ppi · ${st.hz} Hz`} · ${Math.round(st.nits)} nits · DisplayMark ${Math.round(st.score)}`;
+    case 'display': {
+      if (p.emit === 'none') return 'No display';
+      const asp = st.seg ? `${st.res[1]}-line ${st.res[0]}-digit` : ASPECTS.reduce((b, a) => (Math.abs(a.a - p.aspect) < Math.abs(b.a - p.aspect) ? a : b)).name;
+      const shape = !st.seg && p.shape && p.shape !== 'bezel' ? ' ' + DISP_SHAPE[p.shape].name.toLowerCase() : '';
+      return `${p.size.toFixed(1)}" ${DISP_EMIT[p.emit].name.replace(' liquid crystal', ' LCD')} · ${asp}${shape}${st.seg ? '' : ` · ${st.ppi} ppi${st.hz > 60 ? ' · ' + st.hz + ' Hz' : ''}`}${!st.seg && !p.color && !DISP_EMIT[p.emit].emissive ? ' · mono' : ''} · ${Math.round(st.nits)} nits${p.drive < 1 ? ' (eco)' : p.drive > 1 ? ' (bright)' : ''} · DisplayMark ${Math.round(st.score)}`;
+    }
     case 'camera': return `${p.mp} MP ${CAM_FORMATS[p.fmt].name} f/${p.ap}${p.ois !== 'none' ? ' · OIS' : ''} · CameraMark ${Math.round(st.score)}`;
-    case 'battery': return `${p.mah.toLocaleString('en-US')} mAh · ${st.wh.toFixed(1)} Wh · ${CHEM[p.chem].name} · ${Math.round(st.chargeW)} W${p.wireless !== 'none' ? ' · wireless' : ''}`;
+    case 'battery': return `${p.mah.toLocaleString('en-US')} mAh · ${st.wh.toFixed(1)} Wh · ${CHEM[p.chem].name} ${BAT_FORMAT[p.fmt].name.toLowerCase()} · ${Math.round(st.chargeW)} W · ${Math.round(st.cycles)} cycles${p.wireless !== 'none' ? ' · wireless' : ''}${p.safety >= 0.85 ? ' · extra safe' : p.safety <= 0.4 ? ' · ⚠ fire risk' : ''}`;
     case 'memory': return `${fmtMB(st.ramMB)} RAM · ${st.storageMB ? fmtMB(st.storageMB) : 'no'} storage · ${DRAM_GENS[p.gen].name}${st.speed ? ' · ' + Math.round(st.speed) + ' MB/s' : ''}`;
-    case 'radio': return `${p.stds.map(x => NET_STDS[x].short).join(' + ')} · ${p.bands} band${p.bands === 1 ? '' : 's'} · ${fmtSpeed(st.peak)}`;
+    case 'radio': return `${p.stds.map(x => NET_STDS[x].short).join(' + ')} · ${p.bands} band${p.bands === 1 ? '' : 's'} · ${fmtSpeed(st.peak)} · ${ANTENNAS[p.ant].name.toLowerCase()} · ${fmtPct(radioCoverage(p.stds, now(), p.bands).total, 0)} of buyers`;
   }
   return '';
 }
@@ -123,7 +128,7 @@ function sanitizeDraft(d) {
   const okChip = d.chip.kind === 'custom' ? S.chips.some(c => c.id === d.chip.id && c.status === 'ready') : vendorChipsAvailable(t).some(c => c.id === d.chip.id);
   if (!okChip) {
     const vs = vendorChipsAvailable(t).sort((a, b) => b.cpu - a.cpu);
-    d.chip = { kind: 'vendor', id: (vs.find(c => c.tier !== 'flagship') || vs[0] || VENDOR_CHIPS[0]).id };
+    d.chip = { kind: 'vendor', id: (vs.find(c => c.tier === 'mid') || vs.find(c => c.tier !== 'flagship') || vs[0] || VENDOR_CHIPS[0]).id };
   }
   // parts: keep own designs that exist; supplier parts must be a model on sale today that fits this body
   const fixRef = (ref, type, role) => {
@@ -505,11 +510,14 @@ const PhoneLab = {
       const { e, fab } = customChipCost(c.stats, t);
       rows.push({ key: 'custom:' + c.id, c: c.stats, custom: true, price: fab ? e.own : e.foundry });
     }
-    for (const c of vendorChipsAvailable(t).sort((a, b) => b.cpu - a.cpu)) rows.push({ key: 'vendor:' + c.id, c, price: vendorChipPrice(c, t) });
+    const tierF = this.chipTier || 'all', vend = vendorChipsAvailable(t);
+    for (const c of vend.filter(c => tierF === 'all' || c.tier === tierF || d.chip.id === c.id).sort((a, b) => b.cpu - a.cpu)) rows.push({ key: 'vendor:' + c.id, c, price: vendorChipPrice(c, t) });
     const sel = d.chip.kind + ':' + d.chip.id;
+    const tiers = Object.keys(CHIP_TIERS).filter(k => vend.some(c => c.tier === k));
     const ev = pc.ev;
     return `${ev.integrated ? '<div class="note good mb-s">📶 Baseband integrated in the chip: cheaper, smaller radio.</div>' : ev.gen >= 1 ? '<div class="note mb-s">Separate baseband chip (the processor has no compatible modem block).</div>' : ''}
       ${ev.needDsp ? '<div class="note warn mb-s">Digital radio needs a DSP: an extra DSP chip is added (cost, power, volume). Pick a chip with a DSP or modem block.</div>' : ''}
+      <div class="mb-s">${segBtn('chiptier', [{ v: 'all', label: `All (${vend.length})` }].concat(tiers.map(k => ({ v: k, label: CHIP_TIERS[k].name }))), tierF)}</div>
       <div class="tiny faint mb-s">Performance is what the chip delivers at full speed; in this ${ev.geom.T.toFixed(1)} mm body it can shed ${ev.thermBudget.toFixed(1)} W before it throttles. 📦 is the room it takes on the board.</div>
       <div class="chip-cards">${rows.map(r => {
         const sp = chipSpace(r.c), sus = Math.min(1, Math.pow(ev.thermBudget / Math.max(0.01, r.c.power + ev.power.memory + 0.25 * ev.power.display), 0.6));
@@ -922,6 +930,7 @@ const PhoneLab = {
         if (seg === 'keys') d().style.keys = v;
         if (seg === 'keytone') { d().style.keyTone = v; if (v === 'accent' && !d().style.accent) d().style.accent = BODY_COLORS[11]; }
         if (seg && seg.startsWith('catv-')) this.catVendor[seg.slice(5)] = v;
+        if (seg === 'chiptier') this.chipTier = v;
         if (seg === 'ptool') this.paintTool = v;
         if (seg === 'pbrush') this.paintBrush = +v;
         if (seg === 'grid') this.grid = +v;

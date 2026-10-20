@@ -181,7 +181,7 @@ function optCards(path, options, value, cols, mode) {
   return `<div class="ocards" style="--cols:${cols || 2}">` + options.map(o => {
     const u = o.disabled ? { ok: false, msg: o.disabled } : techUI(o.tech, mode);
     const sel = String(o.v) === String(value);
-    const tip = o.tip || (o.tech && TECH[o.tech] ? TECH[o.tech].desc : '');
+    const tip = o.tip || (o.tech && TECH[o.tech] ? TECH[o.tech].desc + (TECH[o.tech].effect ? ' (' + TECH[o.tech].effect + ')' : '') : '');
     return `<div class="ocard ${sel ? 'on' : ''} ${u.ok ? '' : 'locked'} ${u.ex ? 'ex' : ''}" ${u.ok ? `data-pick="${path}" data-v="${esc(o.v)}"` : ''} title="${esc(tip)}">
       <div class="oc-t">${o.title}</div>${o.sub ? `<div class="oc-s">${o.sub}</div>` : ''}${lockFoot(u)}</div>`;
   }).join('') + '</div>';

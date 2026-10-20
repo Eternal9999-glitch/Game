@@ -37,12 +37,12 @@ const REGION_ORDER = ['na', 'eu', 'ea', 'cn', 'rw'];
 // also support (fallback). cost/pwr/vol: radio cost ($ at its launch), talk power (W), electronics
 // volume factor. niche: rivals skip it.
 const NET_STDS = {
-  imts:   { name: 'IMTS mobile radio-telephone', short: '0G', gen: 0, peak: 0, tech: 'net_imts', cost: 260, pwr: 9.0, vol: 1.0, vehicle: true },
-  amps:   { name: 'AMPS analog cellular', short: '1G AMPS', gen: 1, peak: 0, tech: 'net_amps', cost: 250, pwr: 1.25, vol: 0.62 },
-  nmt:    { name: 'NMT / TACS analog cellular', short: '1G NMT', gen: 1, peak: 0, tech: 'net_nmt', cost: 250, pwr: 1.25, vol: 0.62 },
-  gsm:    { name: 'GSM', short: '2G GSM', gen: 2, peak: 0.0096, tech: 'net_gsm', cost: 160, pwr: 0.42, vol: 0.46 },
-  tdma:   { name: 'D-AMPS / PDC (TDMA)', short: '2G TDMA', gen: 2, peak: 0.0096, tech: 'net_tdma', cost: 150, pwr: 0.42, vol: 0.46 },
-  cdma:   { name: 'cdmaOne (IS-95)', short: '2G CDMA', gen: 2, peak: 0.0144, tech: 'net_cdma', cost: 180, pwr: 0.36, vol: 0.46 },
+  imts:   { name: 'IMTS mobile radio-telephone', short: '0G', gen: 0, peak: 0, tech: 'net_imts', cost: 150, pwr: 9.0, vol: 1.0, vehicle: true },
+  amps:   { name: 'AMPS analog cellular', short: '1G AMPS', gen: 1, peak: 0, tech: 'net_amps', cost: 130, pwr: 1.25, vol: 0.62 },
+  nmt:    { name: 'NMT / TACS analog cellular', short: '1G NMT', gen: 1, peak: 0, tech: 'net_nmt', cost: 130, pwr: 1.25, vol: 0.62 },
+  gsm:    { name: 'GSM', short: '2G GSM', gen: 2, peak: 0.0096, tech: 'net_gsm', cost: 95, pwr: 0.42, vol: 0.46 },
+  tdma:   { name: 'D-AMPS / PDC (TDMA)', short: '2G TDMA', gen: 2, peak: 0.0096, tech: 'net_tdma', cost: 90, pwr: 0.42, vol: 0.46 },
+  cdma:   { name: 'cdmaOne (IS-95)', short: '2G CDMA', gen: 2, peak: 0.0144, tech: 'net_cdma', cost: 105, pwr: 0.36, vol: 0.46 },
   gprs:   { name: 'GPRS / EDGE', short: '2.5G', gen: 2.5, peak: 0.236, tech: 'net_gprs', needs: 'gsm', cost: 20, pwr: 0.05, vol: 0.04 },
   cdma1x: { name: 'CDMA2000 1x', short: '2.5G 1x', gen: 2.5, peak: 0.153, tech: 'net_1x', needs: 'cdma', cost: 20, pwr: 0.05, vol: 0.04 },
   umts:   { name: 'UMTS / W-CDMA', short: '3G UMTS', gen: 3, peak: 0.384, tech: 'net_umts', needs: 'gprs', cost: 45, pwr: 0.30, vol: 0.10 },
@@ -1448,11 +1448,23 @@ const RIVALS = [
 for (const r of RIVALS) r.skill = +(r.skill + 0.02).toFixed(3);
 
 // ---- Chip vendors (sell off-the-shelf SoCs) ------------------------------------
+// from: first year the company sells phone chips (to: last)
 const VENDORS = [
-  { id: 'quasar', name: 'Quasar', series: 'Snapline', month: 1.5, tiers: ['budget', 'mid', 'flagship'] },
-  { id: 'helix', name: 'Helix Semi', series: 'Dimension', month: 5.5, tiers: ['budget', 'mid'] },
-  { id: 'arcadia', name: 'Arcadia', series: 'Exo', month: 9.5, tiers: ['mid', 'flagship'] },
+  { id: 'quasar', name: 'Quasar', series: 'Snapline', month: 1.5, from: 1960, tiers: ['budget', 'mid', 'plus', 'flagship'], bias: {}, desc: 'Balanced all-rounders.' },
+  { id: 'corvex', name: 'Corvex', series: 'CX', month: 7, from: 1976, to: 2006, tiers: ['budget', 'mid'], bias: { clk: 0.9 }, desc: 'Low-clocked, frugal chips.' },
+  { id: 'tessera', name: 'Tessera Logic', series: 'TL', month: 10.5, from: 1985, to: 2012, tiers: ['mid', 'flagship'], bias: { cache: 1 }, desc: 'Big caches: snappy, but bigger dies.' },
+  { id: 'helix', name: 'Helix Semi', series: 'Dimension', month: 5.5, from: 1994, tiers: ['budget', 'mid', 'plus'], bias: { clk: 0.95, ecore: 2 }, desc: 'Efficiency first: more little cores, lower clocks.' },
+  { id: 'arcadia', name: 'Arcadia', series: 'Exo', month: 9.5, from: 1994, tiers: ['mid', 'flagship'], bias: { gpu: 1, npu: 1 }, desc: 'Strong graphics and AI blocks.' },
+  { id: 'vortex', name: 'Vortex', series: 'Fury', month: 3.5, from: 2009, tiers: ['gaming', 'plus'], bias: { clk: 1.03 }, desc: 'Clocked to the limit for games – runs hot.' },
 ];
+// what each chip tier is: lag = generations behind on node and architecture, clk = clock vs the node's nominal
+const CHIP_TIERS = {
+  budget:   { name: 'budget', lag: 2, clk: 0.88, digit: 4, ip: 2 },
+  mid:      { name: 'mid-range', lag: 1, clk: 0.95, digit: 6, ip: 3 },
+  plus:     { name: 'upper mid', lag: 0, clk: 0.93, digit: 7, ip: 3.5 },
+  flagship: { name: 'flagship', lag: 0, clk: 1, digit: 8, ip: 4 },
+  gaming:   { name: 'gaming', lag: 0, clk: 1.04, digit: 9, ip: 4.5 },
+};
 // supplier brand names for standard parts (the mainstream maker of each)
 const SUPPLIERS = { display: 'Lumina Panels', camera: 'Optix Imaging', battery: 'Voltacell', memory: 'Microbit Memory', radio: 'Aerial RF' };
 // every part type has several suppliers, each releasing a range of models every year.
