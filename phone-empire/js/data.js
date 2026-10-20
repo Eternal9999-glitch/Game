@@ -248,13 +248,12 @@ const SEG_INFO = {
   premium: { name: 'Premium',   k: 3.4, e: 1.6, tilt: { perf: 1.1, cam: 1.15, disp: 1.05, batt: .9, net: 1, design: 1.1, slim: 1.2, light: 1.1, feat: .95 }, typical: 86 },
   ultra:   { name: 'Ultra',     k: 4.0, e: 1.15, tilt: { perf: 1.2, cam: 1.3, disp: 1.1, batt: .8, net: 1, design: 1.2, slim: 1.3, light: 1.15, feat: .9 }, typical: 96 },
 };
-// what a typical buyer in each segment spends
-const SEG_BUDGET = {
-  phone:  [[1973, [800, 1250, 1800, 2600]], [1983, [800, 1300, 2000, 2900]], [1987, [650, 1100, 1800, 2700]], [1990, [450, 850, 1400, 2200]],
-           [1993, [250, 500, 900, 1400]], [1996, [150, 320, 600, 1000]], [2000, [110, 240, 480, 850]], [2005, [80, 200, 450, 800]], [2008, [70, 210, 500, 850]],
-           [2012, [100, 300, 620, 900]], [2016, [140, 360, 720, 1080]], [2020, [190, 420, 800, 1200]], [2026, [210, 450, 850, 1300]]],
-  tablet: [[1973, [150, 330, 600, 950]], [2014, [170, 360, 680, 1050]], [2020, [200, 420, 800, 1200]], [2026, [220, 450, 850, 1300]]],
-};
+// what a typical buyer in each segment spends: a slow, steady drift downward – no price crashes.
+// (Part costs are kept in step with it, see costScale in model.js.)
+const SEG_MID = { phone: 1000, tablet: 760 };
+// segment prices relative to mid-range: close together while technology can't tell phones apart much, wider later
+const SEG_RATIO = [[1973, [0.8, 1, 1.35, 1.9]], [1990, [0.72, 1, 1.45, 2.1]], [2003, [0.6, 1, 1.65, 2.5]], [2015, [0.58, 1, 1.8, 2.75]]];
+const PRICE_DRIFT = 0.013;     // per year
 // handsets sold per month worldwide (log-interpolated)
 const MARKET_SIZE = {
   phone:  [[1973, 1500], [1976, 2200], [1980, 4500], [1983, 9000], [1985, 40e3], [1987, 110e3], [1989, 260e3], [1991, 600e3], [1993, 1.6e6], [1995, 4e6],
@@ -1387,26 +1386,37 @@ const PART_VENDORS = {
     { id: 'lumina', name: 'Lumina Panels', series: 'Vista', style: 'main', month: 2, lag: 0.5, mk: 1.45, desc: 'The industry workhorse: proven panels in every size.' },
     { id: 'kiro', name: 'Kiro Display', series: 'Prism', style: 'premium', month: 8, lag: 0, mk: 1.6, desc: 'The newest panels first – sharper, brighter, thinner, pricier.' },
     { id: 'valor', name: 'Valor Optronics', series: 'Clear', style: 'budget', month: 5, lag: 1.5, mk: 1.32, desc: 'Older panel technology at a discount: thicker and dimmer, but cheap.' },
+    { id: 'oriel', name: 'Oriel Display', series: 'Edge', style: 'tall', month: 11, lag: 0.3, mk: 1.55, desc: 'Tall, narrow panels – curved at the edges once OLED allows.' },
+    { id: 'pixmo', name: 'Pixmo', series: 'Mini', style: 'compact', month: 3.5, lag: 0.8, mk: 1.38, desc: 'Small, squat panels for compact phones: less screen, less power, less room.' },
+    { id: 'sunvale', name: 'Sunvale', series: 'Max', style: 'jumbo', month: 6.5, lag: 0.4, mk: 1.5, desc: 'Big, bright, fast panels for phablets and gamers – power hungry.' },
   ],
   camera: [
     { id: 'optix', name: 'Optix Imaging', series: 'OX', style: 'main', month: 3, lag: 0.5, mk: 1.45, desc: 'Balanced modules for every phone.' },
     { id: 'sennix', name: 'Sennix Optics', series: 'SX', style: 'bigsensor', month: 9, lag: 0, mk: 1.6, desc: 'Big sensors and stabilization: the best photos, but tall modules that stick out.' },
     { id: 'pixelway', name: 'PixelWay', series: 'PW', style: 'compact', month: 6, lag: 0.5, mk: 1.35, desc: 'Small, flat modules for thin phones – fewer pixels, less light.' },
+    { id: 'vivid', name: 'Vivid Sensor', series: 'VS', style: 'hires', month: 1.5, lag: 0.3, mk: 1.5, desc: 'As many megapixels as the year allows – small pixels, so so in the dark.' },
+    { id: 'nocturne', name: 'Nocturne Optics', series: 'NX', style: 'night', month: 10.5, lag: 0.3, mk: 1.55, desc: 'Fast lenses and stabilization for low light – fewer pixels, taller modules.' },
   ],
   battery: [
     { id: 'volta', name: 'Voltacell', series: 'VC', style: 'main', month: 1, lag: 0.5, mk: 1.45, desc: 'Standard cells in every capacity.' },
     { id: 'slimcell', name: 'SlimCell', series: 'SL', style: 'thin', month: 7, lag: 0, mk: 1.5, desc: 'Ultra-thin cells for slim phones: smaller capacities and a higher price per Wh.' },
     { id: 'titan', name: 'Titan Power', series: 'TP', style: 'bulk', month: 4, lag: 1.5, mk: 1.32, desc: 'Big, cheap cells on older chemistry: thick, heavy and slower to charge.' },
+    { id: 'ampere', name: 'Ampere Labs', series: 'AX', style: 'fast', month: 9.5, lag: 0, mk: 1.6, desc: 'The fastest charging and dual cells – pricey, slightly less dense.' },
+    { id: 'greencell', name: 'Greencell', series: 'GC', style: 'longlife', month: 11.5, lag: 1, mk: 1.35, desc: 'Safe, long-lived energy cells on proven chemistry – bulkier.' },
   ],
   memory: [
     { id: 'microbit', name: 'Microbit Memory', series: 'MB', style: 'main', month: 2, lag: 0.5, mk: 1.45, desc: 'Mainstream RAM and storage combos.' },
     { id: 'corsa', name: 'Corsa Semiconductor', series: 'CX', style: 'fast', month: 10, lag: 0, mk: 1.6, desc: 'The newest, fastest memory in stacked packages that take little room.' },
     { id: 'densebyte', name: 'DenseByte', series: 'DB', style: 'budget', month: 6, lag: 1, mk: 1.32, desc: 'Lots of storage for little money: slower interfaces and more packages.' },
+    { id: 'stratos', name: 'Stratos Memory', series: 'ST', style: 'dense', month: 4.5, lag: 0.3, mk: 1.45, desc: 'Huge storage stacks for media phones.' },
+    { id: 'ember', name: 'Ember Semi', series: 'EM', style: 'lowpower', month: 8, lag: 0.2, mk: 1.45, desc: 'Lean, low-power memory: less RAM, cooler and longer battery life.' },
   ],
   radio: [
     { id: 'aerial', name: 'Aerial RF', series: 'AR', style: 'main', month: 4, lag: 0.5, mk: 1.45, desc: 'Radios for the networks people actually use.' },
     { id: 'wavecom', name: 'Wavecom', series: 'WX', style: 'premium', month: 9, lag: 0, mk: 1.6, desc: 'The newest networks first and every band: works everywhere.' },
     { id: 'kestrel', name: 'Kestrel Wireless', series: 'KW', style: 'budget', month: 6, lag: 1.5, mk: 1.32, desc: 'Cheap modules: fewer bands and an older generation.' },
+    { id: 'meridian', name: 'Meridian RF', series: 'MR', style: 'world', month: 2, lag: 0.4, mk: 1.5, desc: 'Every band there is: one radio for the whole world.' },
+    { id: 'pulse', name: 'Pulse RF', series: 'PR', style: 'lowpower', month: 7, lag: 0.3, mk: 1.45, desc: 'Efficient power amplifiers: radios that sip the battery.' },
   ],
 };
 

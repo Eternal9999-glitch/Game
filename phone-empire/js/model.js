@@ -23,7 +23,33 @@ function sizeScore(form, size, t) {
 const formAppeal = (form, t) => (t < FORMS[form].appeal[0][0] - 0.01 ? FORMS[form].appeal[0][1] * 0.8 : interp(FORMS[form].appeal, t));
 function marketSize(cat, t) { return logInterp(MARKET_SIZE[cat], t) * eventMul('demand', t) * trendDemand(t); }
 function segSplit(t) { return interp(SEG_SPLIT, t); }
-const segBudget = (cat, seg, t) => interp(SEG_BUDGET[cat], t)[SEGMENTS.indexOf(seg)];
+const priceLevel = t => Math.exp(-PRICE_DRIFT * (t - FIRST_YEAR));
+const segBudget = (cat, seg, t) => SEG_MID[cat] * interp(SEG_RATIO, t)[SEGMENTS.indexOf(seg)] * priceLevel(t);
+// Part, body and assembly costs are held in step with what buyers pay: a mid-range phone's parts cost about
+// the same share of its price in every era. Technology still makes parts better and cheaper per unit of
+// performance; what changes slowly is the money. Built once from the standard mid-range spec of each year.
+let _costScale = null, _rawCosts = false;
+function costScale(t) {
+  if (_rawCosts) return 1;
+  if (!_costScale) {
+    _rawCosts = true;
+    const rows = [];
+    for (let y = FIRST_YEAR; y <= 2060; y++) {
+      const tt = y + 0.5, ok = id => !id || !TECH[id] || TECH[id].market <= tt;
+      // mid-range parts at ~36% of a mid-range price, flagship parts at ~40% of a premium price
+      const need = (seg, share) => {
+        const s = rivalSpec('phone', seg, tt, null, ok, null), chip = vendorChipById(s.chip.id), c = evalPhone(s, tt, chip).costs;
+        const bom = chipSilicon(chip, tt) + c.display + Object.values(c.cams).reduce((a, b) => a + b, 0) + c.battery + c.memory + c.radio + c.body + c.misc + c.os + c.labor;
+        return Math.log(share * segBudget('phone', seg, tt) / Math.max(1, bom));
+      };
+      rows.push((need('mid', 0.36) + need('premium', 0.34)) / 2);
+    }
+    _rawCosts = false;
+    const sm = rows.map((v, i) => { let a = 0, n = 0; for (let k = Math.max(0, i - 3); k <= Math.min(rows.length - 1, i + 3); k++) { a += rows[k]; n++; } return a / n; });
+    _costScale = sm.map((v, i) => [FIRST_YEAR + i + 0.5, Math.exp(v)]);
+  }
+  return interp(_costScale, t);
+}
 function regionShares(t) {
   const s = {}; let tot = 0;
   for (const r of REGION_ORDER) { s[r] = interp(REGIONS[r].share, t); tot += s[r]; }
@@ -171,7 +197,8 @@ function evalProcessor(cfg, okFn, t) {
 // what one good, packaged chip costs (foundry or your own fab), including clock binning
 function processorCost(stats, t) {
   const e = chipEconomics(stats.area, stats.nm, t), bin = stats.bin || 1;
-  return { e, bin, foundry: e.waferPrice / (e.good * bin) + e.pack + e.ip, own: e.ownWafer / (e.good * bin) + e.pack + e.ip, wafers: 1 / (e.good * bin) };
+  const cs = costScale(t);
+  return { e, bin, foundry: (e.waferPrice / (e.good * bin) + e.pack + e.ip) * cs, own: (e.ownWafer / (e.good * bin) + e.pack + e.ip) * cs, wafers: 1 / (e.good * bin) };
 }
 
 // ---- Off-the-shelf SoCs ------------------------------------------------------------
@@ -232,14 +259,18 @@ function vendorChipsAvailable(t) { return VENDOR_CHIPS.filter(c => c.release <= 
 // What a chip vendor charges: the silicon at a modest margin, plus a premium for performance.
 // The newest flagship carries most of that premium (a share of what premium phones sell for);
 // slower and older chips get cheap fast. Your own chips pay only for the silicon.
-const CHIP_PREMIUM = [[1973, 0.02], [1990, 0.03], [2000, 0.05], [2007, 0.075], [2012, 0.09], [2020, 0.1], [2040, 0.1]];
+const CHIP_PREMIUM = [[1973, 0.06], [1990, 0.08], [2000, 0.11], [2007, 0.14], [2012, 0.16], [2020, 0.17], [2040, 0.17]];
 const TIER_PREMIUM = { flagship: 1, mid: 0.6, budget: 0.3 };
-function vendorChipPrice(chip, t) {
+// the silicon, packaging and IP of a vendor chip (what it costs to make, at the market's price level)
+function chipSilicon(chip, t) {
+  if (!chip || chip.kind !== 'vendor') return 0;
   const e = chipEconomics(chip.area, chip.nm, t);
-  const silicon = (e.waferPrice / e.good) * 1.25 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1);
+  return ((e.waferPrice / e.good) * 1.25 + e.pack + { flagship: 4, mid: 3, budget: 2 }[chip.tier] * (t < 1995 ? 0.5 : 1)) * costScale(t);
+}
+function vendorChipPrice(chip, t) {
   const rel = clamp(chip.cpu / Math.max(1e-12, frontierCpu(t)), 0, 1);
-  const premium = interp(CHIP_PREMIUM, t) * segBudget('phone', 'premium', t) * TIER_PREMIUM[chip.tier] * Math.pow(rel, 1.4);
-  return (silicon + premium) * eventMul('soc', t);
+  const premium = interp(CHIP_PREMIUM, t) * segBudget('phone', 'premium', t) * TIER_PREMIUM[chip.tier] * Math.pow(rel, 1.6);
+  return (chipSilicon(chip, t) + premium) * eventMul('soc', t);
 }
 // a smooth curve of the best vendor CPU (log-interpolated over yearly peaks), so prices glide down
 // instead of dropping the day a new flagship ships
@@ -966,14 +997,17 @@ function evalPhone(spec, t, chip) {
   // heat the body can shed: bigger and thicker bodies (and better cooling) keep a hot chip at full speed
   const thickF = clamp(Math.pow(T / 9, 0.5), 0.7, 1.3);
   const thermBudget = handset ? 10 : Math.max(0.8, 2.0 + 0.17 * (t - 2008)) * mat.therm * Math.pow(footprint / 7000, 0.35) * thickF * bodyUp.therm;
-  const chipPower = chip ? chip.power : 0.5;
-  const sustain = Math.min(1, Math.pow(thermBudget / Math.max(0.01, chipPower), 0.6));
+  // the power budget: processor, memory and screen all turn into heat. Over what the body sheds, they
+  // throttle; a bigger, thicker or better-cooled body (or cooler parts) keeps them at full speed
+  const chipPower = chip ? chip.power : 0.5, memPower = mem.peak || 0, dispHeat = 0.25 * (disp.power || 0);
+  const heatLoad = chipPower + memPower + dispHeat;
+  const sustain = Math.min(1, Math.pow(thermBudget / Math.max(0.01, heatLoad), 0.6));
   let extrasPower = 0;
   if (feat.wifi) extrasPower += 0.03;
   if (feat.gps) extrasPower += 0.02;
   if (feat.bt) extrasPower += 0.01;
   const camPower = Object.values(camStats).reduce((a, c) => a + c.power, 0) * 0.08;
-  const avgPower = interp(BASE_POWER, t) + (radio ? radio.power * 0.5 : 0.5) + disp.power + chipPower * 0.12 + mem.power + camPower + extrasPower + addPower + bodyUp.power + (needDsp ? 0.05 : 0);
+  const avgPower = interp(BASE_POWER, t) + (radio ? radio.power * 0.5 : 0.5) + disp.power + chipPower * 0.18 + mem.power + memPower * 0.25 + camPower + extrasPower + addPower + bodyUp.power + (needDsp ? 0.05 : 0);
   const hours = form === 'car' ? null : bat ? bat.wh / avgPower * (addons.includes('solar') ? 1.04 : 1) : 0;
   // ---- network ----
   const peakFn = s => stdPeak(s, rp);
@@ -1041,7 +1075,7 @@ function evalPhone(spec, t, chip) {
     camScore *= ispF * (chip && chip.tops > 0 ? 1 + Math.min(0.12, chip.tops / 200) : 1) * (chip && chip.media ? 1.03 : 1);
   }
   const raw = {
-    cpu: perfCpu, gpu: perfGpu, ai: chip ? chip.tops : 0, ram: mem.ramMB, stor: mem.speed * refineMul('memory', spec, t),
+    cpu: perfCpu, gpu: perfGpu, ai: chip ? chip.tops : 0, ram: mem.ramMB, stor: mem.speed * refineMul('memory', spec, t) * (0.55 + 0.45 * sustain),
     cam: camScore * refineMul('camera', spec, t), disp: disp.score * (0.45 + 0.55 * (disp.none ? 0 : sizeScore(form, dp.size, t))) * refineMul('display', spec, t) * NAV_KEYS[navk.keys].disp, dispSize: dp ? dp.size : 0,
     hours: hours == null ? hours : hours * refineMul('battery', spec, t), charge: bat ? bat.chargeMin : null, car: form === 'car',
     speed: cov.speed * sig * refineMul('network', spec, t), gen: liveGen, sig,
@@ -1072,6 +1106,9 @@ function evalPhone(spec, t, chip) {
   // simple phones need fewer parts and less hand work
   costs.misc = interp(cat.misc, t) * (0.62 + 0.12 * tier);
   costs.labor = (interp(cat.labor, t) * (0.66 + 0.11 * tier) + Math.max(0, rearCams - 1) + F.labor + (touchOk ? 1 : 0));
+  // body, board, software and assembly follow the market's price level like the parts do
+  const cs = costScale(t);
+  for (const k of ['body', 'addons', 'os', 'misc', 'labor']) costs[k] *= cs;
   // ---- sanity: does it make physical sense? ----
   if (form === 'brick' && totalWeight > 1500) issues.push(`At ${(totalWeight / 1000).toFixed(1)} kg this is no handheld – shrink the electronics (integration research) or make a bag phone.`);
   if (['candybar', 'flip', 'qwerty', 'slider'].includes(form) && totalWeight > 700) issues.push(`A ${Math.round(totalWeight)} g ${F.name.toLowerCase()} won't fit a pocket – the electronics are too big for this form factor.`);
@@ -1093,6 +1130,7 @@ function evalPhone(spec, t, chip) {
   };
   return {
     raw, bench, costs, tier, issues: [...new Set(issues)], notes, sustain, thermBudget, avgPower, hours, chipPower,
+    power: { chip: chipPower, memory: memPower, display: disp.power || 0, radio: radio ? radio.power * 0.5 : 0, cameras: camPower, other: interp(BASE_POWER, t) + extrasPower + addPower + bodyUp.power, heat: heatLoad, shed: thermBudget },
     geom: { form, W, H, T, Hface, openH, lidT, bump, camZ, stb, screenRect, keypadRect, navRect, nav: navk, camBox, footprint, volume, unitVol, unitWeight, handset, antD: geo.antD },
     weight: totalWeight, handsetWeight: weight, volume, thick: T,
     parts: { disp, cams: camStats, bat, mem, radio }, integrated, needDsp, coverage, netSpeed: raw.speed, gen: liveGen,

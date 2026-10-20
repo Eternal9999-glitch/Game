@@ -167,6 +167,7 @@ const bestOf = (order, table, okFn) => [...order].reverse().find(k => okFn(table
 // part stats are pure functions of (params, month): cache them
 const _partCache = new Map();
 function cachedKey(key, fn) {
+  if (typeof _rawCosts !== 'undefined' && _rawCosts) key = 'R' + key;    // unscaled costs (cost-scale calibration) live apart
   let v = _partCache.get(key);
   if (v === undefined) {
     v = fn();
@@ -175,7 +176,9 @@ function cachedKey(key, fn) {
   }
   return v;
 }
-function cached(kind, p, t, fn) { return cachedKey(kind + Math.floor(t * 12) + JSON.stringify(p), fn); }
+// every part's cost follows the slow price level of the market (costScale in model.js)
+const scaledCost = (st, t) => (st && typeof st.cost === 'number' ? Object.assign({}, st, { cost: st.cost * costScale(t), baseCost: st.cost }) : st);
+function cached(kind, p, t, fn) { return cachedKey(kind + '#' + Math.floor(t * 12) + JSON.stringify(p), () => scaledCost(fn(), t)); }
 // stats at t from rawFn(t), with the cost held up by what the same spec cost before (guardCost);
 // techs: what the spec needs – the guard only looks back to when all of it was on the market
 function priced(kind, guard, p, t, rawFn, techs) {
@@ -185,7 +188,7 @@ function priced(kind, guard, p, t, rawFn, techs) {
     const st = raw(t);
     const since = Math.max(FIRST_YEAR, ...techs.map(id => (TECH[id] ? TECH[id].market : 0)));
     const cost = guardCost(guard, tt => raw(tt).cost, t, since);
-    return cost > st.cost ? Object.assign({}, st, { cost, rawCost: st.cost }) : st;
+    return scaledCost(cost > st.cost ? Object.assign({}, st, { cost, rawCost: st.cost }) : st, t);
   });
 }
 
@@ -572,8 +575,10 @@ function evalMemory(p, t) {
     const bw = g.bw;
     const speed = p.flDie ? ifc.mbs * c.speed : 0;
     const power = 0.02 + g.pwr * 0.05 * Math.pow(Math.max(0.001, ramMB), 0.15) + (p.flDie ? 0.01 : 0);
+    // flat out (W): lots of fast RAM and fast storage run hot, like a big chip
+    const peak = 0.02 + g.pwr * 0.35 * Math.sqrt(Math.max(0, ramMB) / 1024) + (p.flDie ? ifc.mbs * c.speed / 8000 : 0);
     const volume = pkgs * interp(PKG_VOL, t);
-    return { ramMB, storageMB, bw, speed, power, volume, pkgs, cost: cost * eventMul('memory', t), endurance: c.endur, rules: memoryRules(p) };
+    return { ramMB, storageMB, bw, speed, power, peak, volume, pkgs, cost: cost * eventMul('memory', t), endurance: c.endur, rules: memoryRules(p) };
   });
 }
 const FLAG_RAM = [[1973, 0.000125], [1983, 0.002], [1990, 0.008], [1996, 0.25], [2000, 1], [2003, 16], [2007, 128], [2010, 512], [2013, 2048], [2016, 4096], [2020, 12288], [2024, 16384], [2040, 32768]];
@@ -766,7 +771,7 @@ function catalogKey(type, form, cat, role) {
   if (type === 'radio') return form === 'car' || form === 'bag' ? 'car' : 'hand';
   return 'all';
 }
-// one vendor's models released in year y: [{p, code, tag}]
+// one vendor's models released in year y: [{p, code, tag}]. Each company's style decides what it builds.
 function vendorRange(type, v, key, tr) {
   const ok = vendorOk(tr, v.lag), out = [];
   const add = (p, code, tag) => { if (p) out.push({ p, code, tag }); };
@@ -774,24 +779,41 @@ function vendorRange(type, v, key, tr) {
     const [form, cat] = key.split('/'), keypad = isKeypadForm(form);
     const step = cat === 'tablet' ? 1.2 : keypad ? 0.3 : 0.35;
     const cap = Math.min(form === 'slate' ? ladderCap(TABLET_SIZE_CAPS, ok) : ladderCap(DISP_SIZE_CAPS, ok), form === 'fold' ? 8.1 : 99);
-    const sized = (lvl, ds, tag) => {
+    const hzBest = REFRESH.filter(r => ok(r.tech)).pop();
+    const sized = (lvl, ds, tag, mod) => {
       const p = stdDisplay(form, cat, tr, ok, lvl);
       if (!p || p.emit === 'none') return;
       const lim = Math.min(cap, p.matrix === 'segment' ? 2.2 : p.matrix === 'passive' ? 2.8 : 99);
       p.size = r1(clamp(p.size + ds * step, form === 'fold' ? 7 : 0.6, lim));
-      add(p, Math.round(p.size * 10), tag);
+      if (mod) mod(p);
+      add(p, Math.round(p.size * 10) + (tag ? tag[0].toUpperCase() : ''), tag);
     };
-    if (v.style === 'premium') { sized(3, 0, 'flagship'); sized(3, 1.2, 'big'); }
-    else if (v.style === 'budget') { sized(0, -1, 'small'); sized(0, 0.3, ''); sized(1, 1, 'big'); }
-    else { sized(2, -1, 'compact'); sized(2, 0, ''); sized(2, 1, 'big'); }
+    // form factors: tall & curved, squat & compact, jumbo & bright
+    const tall = p => { if (p.matrix === 'segment') return; p.aspect = +(p.aspect + (keypad ? 0.2 : 0.22)).toFixed(2); if (!keypad && DISP_EMIT[p.emit].emissive && ok('disp_curved')) p.shape = 'curved'; };
+    const squat = p => { if (p.matrix === 'segment') return; p.aspect = +Math.max(keypad ? 0.9 : 1.33, p.aspect - (keypad ? 0.3 : 0.25)).toFixed(2); if (!keypad) p.shape = 'bezel'; };
+    const jumbo = p => { if (hzBest && ['ltps', 'ltpo'].includes(p.matrix)) p.hz = hzBest.hz; if (ok('disp_hbm')) p.drive = 1.3; };
+    switch (v.style) {
+      case 'premium': sized(3, 0, 'flagship'); sized(3, 1.2, 'big'); break;
+      case 'budget': sized(0, -1, 'small'); sized(0, 0.3, ''); sized(1, 1, 'big'); break;
+      case 'tall': sized(2, 0, 'tall', tall); sized(3, 1, 'edge', tall); break;
+      case 'compact': sized(1, -2, 'mini', squat); sized(2, -1.2, 'compact', squat); break;
+      case 'jumbo': sized(2, 1.8, 'jumbo', jumbo); sized(2, 3, 'max', jumbo); break;
+      default: sized(2, -1, 'compact'); sized(2, 0, ''); sized(2, 1, 'big');
+    }
   } else if (type === 'camera') {
     const role = key;
     let fmtMax = 0;
     CAM_FORMAT_TECH.forEach((id, i) => { if (ok(id)) fmtMax = i; });
-    const cam = (lvl, fmtCap, tag) => { const p = stdCamera(role, tr, ok, lvl, fmtCap); if (p) add(p, p.mp, tag); };
-    if (v.style === 'bigsensor') { cam(3, null, 'big sensor'); if (role === 'main' || role === 'tele') cam(2, null, ''); }
-    else if (v.style === 'compact') { cam(1, Math.max(0, fmtMax - 3), 'slim'); cam(0, Math.max(0, fmtMax - 4), 'tiny'); }
-    else { cam(2, null, ''); cam(1, null, 'value'); }
+    const cam = (lvl, fmtCap, tag, mod) => { const p = stdCamera(role, tr, ok, lvl, fmtCap); if (!p) return; if (mod) mod(p); add(p, p.mp + (tag ? tag[0].toUpperCase() : ''), tag); };
+    const mpOk = CAM_MP.filter((m, i) => ok(CAM_MP_TECH[i]));
+    const apOk = APERTURES.filter((a, i) => ok(APERTURE_TECH[i]));
+    switch (v.style) {
+      case 'bigsensor': cam(3, null, 'big sensor'); if (role === 'main' || role === 'tele') cam(2, null, ''); break;
+      case 'compact': cam(1, Math.max(0, fmtMax - 3), 'slim'); cam(0, Math.max(0, fmtMax - 4), 'tiny'); break;
+      case 'hires': cam(2, null, 'hi-res', p => { const top = mpOk.filter(m => m < 40 || CAM_SENSOR[p.sensor].bin).pop(); if (top) p.mp = top; }); break;
+      case 'night': cam(2, null, 'night', p => { p.ap = apOk[apOk.length - 1] || p.ap; p.mp = mpOk[Math.max(0, mpOk.indexOf(p.mp) - 1)] || p.mp; if (ok('cam_ois')) p.ois = p.ois === 'none' ? 'lens' : p.ois; }); break;
+      default: cam(2, null, ''); cam(1, null, 'value');
+    }
   } else if (type === 'battery') {
     const [form, cat] = key.split('/');
     if (form === 'car') return out;
@@ -803,34 +825,42 @@ function vendorRange(type, v, key, tr) {
       p.mah = Math.round(clamp(p.mah * mul, 300, capMax) / 50) * 50;
       add(p, p.mah, tag);
     };
-    if (v.style === 'thin') {
-      const thin = p => { if (!CHEM[p.chem].nickel) { p.fmt = ok('bat_stack') ? 'stacked' : ok('bat_lipo') ? 'pouch' : p.fmt; p.thin = BAT_FORMAT[p.fmt].lithium; } };
-      for (const m of [0.55, 0.7, 0.85]) cell(3, m, 'thin', thin);
-    } else if (v.style === 'bulk') {
-      const bulk = p => { p.fmt = CHEM[p.chem].nickel ? (ok('bat_prism') ? 'prism' : 'cyl') : ok('bat_prism') ? 'prism' : p.fmt; p.elec = 0.45; const ch = CHARGE.filter(c => ok(c.tech) && c.w <= p.charge); p.charge = (ch[Math.max(0, ch.length - 2)] || CHARGE[0]).w; p.dual = p.dual && p.charge >= 65; };
-      for (const m of [1.0, 1.3, 1.6]) cell(0, m, m > 1.2 ? 'huge' : 'big', bulk);
-    } else for (const m of [0.8, 1.0, 1.2]) cell(2, m, '');
+    const chg = CHARGE.filter(c => ok(c.tech));
+    switch (v.style) {
+      case 'thin': { const thin = p => { if (!CHEM[p.chem].nickel) { p.fmt = ok('bat_stack') ? 'stacked' : ok('bat_lipo') ? 'pouch' : p.fmt; p.thin = BAT_FORMAT[p.fmt].lithium; } }; for (const m of [0.55, 0.7, 0.85]) cell(3, m, 'thin', thin); break; }
+      case 'bulk': { const bulk = p => { p.fmt = CHEM[p.chem].nickel ? (ok('bat_prism') ? 'prism' : 'cyl') : ok('bat_prism') ? 'prism' : p.fmt; p.elec = 0.45; const ch = chg.filter(c => c.w <= p.charge); p.charge = (ch[Math.max(0, ch.length - 2)] || CHARGE[0]).w; p.dual = p.dual && p.charge >= 65; }; for (const m of [1.0, 1.3, 1.6]) cell(0, m, m > 1.2 ? 'huge' : 'big', bulk); break; }
+      case 'fast': { const fast = p => { const top = chg.filter(c => c.w < 65 || ok('bat_dual')).pop(); if (top) { p.charge = top.w; p.dual = top.w >= 65; } p.elec = 0.75; }; for (const m of [0.85, 1.05]) cell(3, m, 'fast', fast); break; }
+      case 'longlife': { const long = p => { p.safety = 0.85; p.elec = 0.4; }; for (const m of [0.9, 1.15, 1.4]) cell(1, m, 'long-life', long); break; }
+      default: for (const m of [0.8, 1.0, 1.2]) cell(2, m, '');
+    }
   } else if (type === 'memory') {
     const mem = (lvl, tag, f) => { const p = stdMemory(tr, ok, lvl); if (!p) return; if (f) f(p); add(p, memCode(DRAM_DIES[p.ramDie] * p.ramN / 8) + '/' + memCode(FLASH_DIES[p.flDie] * p.flN / 8), tag); };
-    const stackMax = ladderCap(STACK_CAPS, ok);
-    if (v.style === 'fast') { mem(3, 'fast', p => { p.stack = Math.min(stackMax, Math.max(p.ramN, p.flN, 1)); }); mem(2, 'compact', p => { p.stack = Math.min(stackMax, Math.max(p.ramN, p.flN, 1)); }); }
-    else if (v.style === 'budget') {
-      const slow = p => { p.stack = 1; const ifs = STORAGE_IF_ORDER.filter(k => ok(STORAGE_IF[k].tech)); if (p.flDie) p.iface = ifs[Math.max(0, ifs.length - 2)] || p.iface; };
-      mem(2, 'roomy', p => { slow(p); if (p.flDie) p.flN = Math.min(16, p.flN * 2); });
-      mem(0, 'cheap', slow);
-    } else { mem(1, ''); mem(2, ''); }
+    const stackMax = ladderCap(STACK_CAPS, ok), stackUp = p => { p.stack = Math.min(stackMax, Math.max(p.ramN, p.flN, 1)); };
+    const slow = p => { p.stack = 1; const ifs = STORAGE_IF_ORDER.filter(k => ok(STORAGE_IF[k].tech)); if (p.flDie) p.iface = ifs[Math.max(0, ifs.length - 2)] || p.iface; };
+    switch (v.style) {
+      case 'fast': mem(3, 'fast', stackUp); mem(2, 'compact', stackUp); break;
+      case 'budget': mem(2, 'roomy', p => { slow(p); if (p.flDie) p.flN = Math.min(16, p.flN * 2); }); mem(0, 'cheap', slow); break;
+      case 'dense': mem(2, 'vault', p => { stackUp(p); if (p.flDie) p.flN = Math.min(16, p.flN * 4); }); mem(1, 'vault', p => { if (p.flDie) p.flN = Math.min(16, p.flN * 4); }); break;
+      case 'lowpower': mem(1, 'eco', p => { p.ramN = Math.max(1, Math.ceil(p.ramN / 2)); stackUp(p); }); mem(2, 'eco', p => { p.ramN = Math.max(1, Math.ceil(p.ramN / 2)); stackUp(p); }); break;
+      default: mem(1, ''); mem(2, '');
+    }
   } else if (type === 'radio') {
     const form = key === 'car' ? 'car' : 'touch';
-    const rad = (lvl, db, tag) => {
+    const rad = (lvl, db, tag, f) => {
       const p = stdRadio(tr, ok, lvl, null, form);
       if (!p) return;
       p.bands = clamp(p.bands + db, 1, ladderCap(BAND_CAPS, ok));
+      if (f) f(p);
       const g = Math.max(...p.stds.map(s => NET_STDS[s].gen));
-      add(p, Math.floor(g) + 'G' + p.bands, tag);
+      add(p, Math.floor(g) + 'G' + p.bands + (tag ? tag[0].toUpperCase() : ''), tag);
     };
-    if (v.style === 'premium') { rad(3, 2, 'world'); rad(2, 1, ''); }
-    else if (v.style === 'budget') { rad(0, -2, 'basic'); rad(1, -1, ''); }
-    else { rad(2, 0, ''); rad(1, 0, 'value'); }
+    switch (v.style) {
+      case 'premium': rad(3, 2, 'world'); rad(2, 1, ''); break;
+      case 'budget': rad(0, -2, 'basic'); rad(1, -1, ''); break;
+      case 'world': rad(2, 99, 'all bands'); rad(1, 99, 'travel'); break;
+      case 'lowpower': rad(1, -1, 'eco', p => { p.pa = bestOf(['si', 'gaas', 'et'], PAS, ok); p.mimo = Math.min(p.mimo, 2); }); rad(2, 0, 'eco', p => { p.pa = bestOf(['si', 'gaas', 'et'], PAS, ok); }); break;
+      default: rad(2, 0, ''); rad(1, 0, 'value');
+    }
   }
   return out;
 }
@@ -881,7 +911,7 @@ function partValue(type, st, p) {
 }
 // The best part on sale carries a premium – a share of what premium phones sell for – that fades fast for
 // parts behind it, like flagship chips. Your own designs pay only for making them.
-const PART_PREMIUM = { display: 0.05, camera: 0.045, memory: 0.03, battery: 0.016, radio: 0.025 };
+const PART_PREMIUM = { display: 0.05, camera: 0.045, memory: 0.065, battery: 0.016, radio: 0.025 };
 const _partBest = new Map();
 function partBest(type, key, t, role) {
   const k = type + '|' + key + '|' + Math.floor(t * 12);
