@@ -138,3 +138,25 @@ Keys: `Space` pause/resume · `1`–`3` game speed.
 | `js/phonelab.js`, `js/partlabs.js`, `js/views.js` | The screens |
 | `js/chiplab.js` | The Parts Lab's 💠 Processor designer |
 | `js/main.js` | Start screen, real-time loop, menu, keyboard |
+
+## Round 7 changes (economy & management)
+
+- **Steady prices:** what buyers pay drifts down slowly (about 1.3% a year) and part, body and assembly costs are kept in step, so a
+  mid-range phone's parts cost about the same share of its price in every era. No more $250 expectations for $1,000 phones.
+- **Power budget:** the processor, memory and screen turn into heat. Over what the body can shed, they throttle (Phone Lab → Body →
+  ⚡ Heat). Bigger or thicker bodies and better cooling shed more. Flagship chips and memory also drain the battery faster, and they
+  carry bigger price premiums.
+- **More suppliers:** five companies per part type, with tall/curved, compact and jumbo displays, high-res and night cameras, fast-charge
+  and long-life batteries, dense and low-power memory, world-band and low-power radios.
+- **Rivals:** 19 brands that arrive over the decades, slightly stronger engineering, a new model per segment every ~1.8 years.
+  Click 👁 in 📊 Market to see a rival's phone in 3D.
+- **Research points:** research costs RP, earned daily (hire researchers for more). At most 5 slots. Tech opens when it is invented.
+  **Breakthroughs** (more likely with more researchers) open a technology years early, and rivals get breakthroughs too. Exclusive tech is gone.
+  ~45 new early-game refinements (1974–1997).
+- **👥 Staff** replaces R&D centers: researchers, hardware engineers (hardware quality), software developers (software quality), PR
+  (ad power), sales reps (store presence) and operations staff (cheaper production, fewer defects).
+- **Launching:** a confirmation screen sets the release (when developed, X days later, when stock covers demand, or held) and the device's
+  own ad budget. **🎤 Launch events** (💰 Finance) unveil devices that aren't public yet for a burst of launch demand. Every device can
+  have its own ad budget (💰 Finance → 📺 Device ads). The calendar now ticks day by day.
+- **Phone Lab:** 32×32 logo canvas with brush sizes and fill, a snap-to-grid option in the layout editor; drawn key shapes are gone
+  (per-key preset shapes stay).

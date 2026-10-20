@@ -9,7 +9,7 @@
 // ============================================================================
 
 const FIRST_YEAR = 1973;
-const RETAIL_CUT = 0.30;        // retail margin, distribution, warranty & royalties (share of sticker price)
+const RETAIL_CUT = 0.33;        // retail margin, distribution, warranty & royalties (share of sticker price)
 const VOLTAGE = 3.8;            // nominal cell voltage used to turn mAh into Wh
 const CELL_MM2 = 2.0;           // silicon area of one chip-lab grid cell
 const CELL_MM = Math.sqrt(CELL_MM2);
@@ -1137,6 +1137,52 @@ T('form_fold', 'design', 'Foldable phones', 2019.5, 3, 150, 'A hinge that folds 
 T('int_sip', 'design', 'System-in-package', 2021, 1.2, 70, 'Everything on one module: −15%.', ['int_slp']);
 T('body_ti', 'design', 'Titanium frames', 2023.7, 1.2, 70, 'Light and strong aerospace titanium.', ['body_steel']);
 T('port_less', 'design', 'Portless design', 2026, 1, 60, 'No openings at all: charge wirelessly.', ['bat_mag']);
+
+// early-game refinements: small steady gains while the big inventions are still years away
+T('xfeat_redial', 'features', 'Last-number redial', 1974, 0.3, 20, 'One key calls the last number again.');
+T('xrf_duplex', 'network', 'Cavity duplexers', 1974.5, 0.5, 30, 'Talk and listen at once with less hiss: better range.');
+T('xdes_ergo', 'design', 'Ergonomic handsets', 1975, 0.4, 25, 'Handsets shaped for the hand and the ear.');
+T('xbiz_dealers', 'business', 'Car-dealer partnerships', 1975.5, 0.5, 30, 'Sell phones where people buy cars: +5% store presence.');
+T('xmfg_jig', 'manufacturing', 'Assembly jigs', 1976, 0.4, 25, 'Repeatable hand assembly: −3% production cost.');
+T('xmem_nvram', 'memory', 'Battery-backed memory', 1976.5, 0.4, 25, 'Numbers survive a power cut.');
+T('xdisp_bright', 'display', 'Brighter LED digits', 1977, 0.4, 25, 'Readable in a sunny car.');
+T('xfeat_speed', 'features', 'Speed dial', 1977.5, 0.4, 25, 'Ten favourite numbers on single keys.', ['xfeat_redial']);
+T('xrf_squelch', 'network', 'Digital squelch', 1978, 0.5, 30, 'Silence between calls, cleaner audio.', ['xrf_duplex']);
+T('xbat_charger', 'battery', 'Smart chargers', 1978.5, 0.4, 25, 'Chargers that stop when full: longer-lived packs.');
+T('xdes_rubber', 'design', 'Rubber keypads', 1979, 0.4, 25, 'Soft, quiet keys that survive years of dialing.', ['xdes_ergo']);
+T('xrf_trunk', 'network', 'Trunked signalling', 1980, 0.6, 35, 'Find a free channel faster.', ['xrf_squelch']);
+T('xfeat_lock', 'features', 'Keypad lock', 1980.5, 0.3, 20, 'No more pocket dialing.');
+T('xbiz_lease', 'business', 'Leasing plans', 1981, 0.6, 35, 'Pay monthly instead of up front: +5% store presence.', ['xbiz_dealers']);
+T('xdisp_contrast', 'display', 'High-contrast LCD', 1981.5, 0.5, 30, 'Sharper segments, wider viewing angle.', ['xdisp_bright']);
+T('xmfg_smt', 'manufacturing', 'Early surface mount', 1982, 0.6, 35, 'Parts placed by machine: −3% production cost.', ['xmfg_jig']);
+T('xbat_gauge', 'battery', 'Battery gauge', 1982.5, 0.4, 25, 'Know how much talk time is left.', ['xbat_charger']);
+T('xdes_mould', 'design', 'Precision moulding', 1983.5, 0.5, 30, 'Tight shell gaps and crisp edges.', ['xdes_rubber']);
+T('xrf_handoff', 'network', 'Faster handoffs', 1984, 0.6, 35, 'Fewer dropped calls between cells.', ['xrf_trunk']);
+T('xmem_eeprom', 'memory', 'Faster EEPROM writes', 1985, 0.5, 30, 'Save numbers instantly.', ['xmem_nvram']);
+T('xdisp_temp', 'display', 'Wide-temperature LCD', 1985.5, 0.5, 30, 'Works in winter cars and summer dashboards.', ['xdisp_contrast']);
+T('xfeat_clock', 'features', 'Clock & alarm', 1986, 0.3, 20, 'The phone tells the time.');
+T('xrf_lna', 'network', 'Low-noise amplifiers', 1987, 0.6, 35, 'Hear weak towers: more range.', ['xrf_handoff']);
+T('xbat_memfix', 'battery', 'Memory-effect cures', 1987.5, 0.5, 30, 'Smart discharge keeps NiCd packs at full capacity.', ['xbat_gauge']);
+T('xfeat_calc', 'features', 'Calculator', 1988, 0.3, 20, 'Sums on the keypad.', ['xfeat_clock']);
+T('xdes_color', 'design', 'Coloured shells', 1988.5, 0.4, 25, 'Not just black: shells in any colour.', ['xdes_mould']);
+T('xbiz_mall', 'business', 'Mall kiosks', 1989, 0.6, 35, 'Phone stands in every shopping mall: +5% store presence.', ['xbiz_lease']);
+T('xdisp_green', 'display', 'Backlight tuning', 1989.5, 0.4, 25, 'Even, glow-free backlighting.', ['xdisp_temp']);
+T('xmfg_test', 'manufacturing', 'Automated testing', 1990, 0.6, 35, 'Every unit tested by machine: −3% production cost.', ['xmfg_smt']);
+T('xmem_pack', 'memory', 'Fine-pitch memory packages', 1990.5, 0.5, 30, 'Smaller, faster memory chips.', ['xmem_eeprom']);
+T('xfeat_ring', 'features', 'Selectable ringtones', 1991, 0.4, 25, 'Pick your ring.', ['xfeat_lock']);
+T('xrf_filter', 'network', 'Digital channel filters', 1991.5, 0.6, 35, 'Cleaner reception next to busy channels.', ['xrf_lna']);
+T('xdes_curve', 'design', 'Curved handsets', 1992, 0.5, 30, 'A banana curve from ear to mouth.', ['xdes_color']);
+T('xbat_nimh', 'battery', 'High-capacity NiMH cells', 1992.5, 0.6, 35, 'More talk time from the same pack.', ['xbat_memfix']);
+T('xdisp_icons', 'display', 'Status icons', 1993, 0.4, 25, 'Signal bars and battery level at a glance.', ['xdisp_green']);
+T('xfeat_menu', 'features', 'Menu system', 1993.5, 0.5, 30, 'Settings and phonebook in tidy menus.', ['xfeat_calc']);
+T('xrf_sleep', 'network', 'Paging sleep modes', 1994, 0.6, 35, 'The radio naps between pages: longer standby.', ['xrf_filter']);
+T('xdes_hinge2', 'design', 'Sturdy hinges', 1994.5, 0.5, 30, 'Flips and antennas that survive years.', ['xdes_curve']);
+T('xbat_trickle', 'battery', 'Trickle charging', 1995, 0.4, 25, 'Gentle top-up charging.', ['xbat_nimh']);
+T('xfeat_cal', 'features', 'Calendar', 1995.5, 0.4, 25, 'Appointments on your phone.', ['xfeat_menu']);
+T('xdisp_fast', 'display', 'Fast-response LCD', 1996, 0.5, 30, 'No ghosting when you scroll.', ['xdisp_icons']);
+T('xrf_helix', 'network', 'Helical antennas', 1996.5, 0.5, 30, 'Stubby antennas with full range.', ['xrf_sleep']);
+T('xdes_seal', 'design', 'Dust seals', 1997, 0.4, 25, 'Keys and screens that keep the dirt out.', ['xdes_hinge2']);
+T('xfeat_t9', 'features', 'Predictive text', 1997.5, 0.6, 35, 'Type a word with one press per letter.', ['xfeat_ring']);
 // body upgrades & decorations
 T('rug_bumper', 'design', 'Shock-absorbing bumpers', 1994, 0.4, 25, 'Rubber-cushioned corners for work phones.');
 T('logo_emboss', 'design', 'Embossed logos', 1995, 0.3, 20, 'Logos pressed into the shell.');
@@ -1263,8 +1309,8 @@ const PLAYSTYLES = {
   maker: { name: 'Manufacturer', icon: '🏭', tagline: 'Own the factories. Build cheap and sell capacity to rivals.',
     perks: ['Starts with a small assembly workshop', '−30% factory cost, −20% upkeep', 'In-house parts 10% cheaper', 'More and better supply contracts', 'Full research tree: invent every part technology yourself'],
     facMul: 0.7, upkeepMul: 0.8, inMul: 0.9, contractMul: 1.6 },
-  tech: { name: 'Tech Pioneer', icon: '🔬', tagline: 'Out-invent everyone. Custom parts, exclusive tech, licensing.',
-    perks: ['+50% research speed, −30% research cost', '+1 research slot', '−40% part tooling & chip tape-out cost', '+50% licensing royalties', 'Part tech comes from suppliers: build a plant to research its parts early'],
+  tech: { name: 'Tech Pioneer', icon: '🔬', tagline: 'Out-invent everyone. Custom parts, breakthroughs, licensing.',
+    perks: ['+50% research points and speed, −30% research cost, more breakthroughs', '+1 research slot', '−40% part tooling & chip tape-out cost', '+50% licensing royalties', 'Part tech comes from suppliers: build a plant to research its parts early'],
     rsSpeed: 1.5, rsCost: 0.7, rsSlot: 1, tapeMul: 0.6, royaltyMul: 1.5 },
 };
 
@@ -1274,20 +1320,20 @@ const FACTORY_TYPES = {
   workshop: { name: 'Assembly Workshop', icon: '🛠️', cost: 70e3, days: 30, upkeep: 2.5e3, cap: 2500, unit: 'devices', spare: 2, pool: 'assembly', assemblyMul: 0.6,
     desc: 'A few benches and soldering stations. Builds your devices at ~60% of contract prices.' },
   assembly: { name: 'Assembly Plant', icon: '🏭', cost: 0.9e6, days: 60, upkeep: 50e3, cap: 40000, unit: 'devices', spare: 2.5, pool: 'assembly', assemblyMul: 0.4,
-    desc: 'A proper production line: devices at ~40% of contract prices. Unlocks exclusive design & feature tech.' },
+    desc: 'A proper production line: devices at ~40% of contract prices.' },
   radio:    { name: 'RF Module Plant', icon: '📶', cost: 3.5e6, days: 120, upkeep: 110e3, cap: 80000, unit: 'radio modules', spare: 1.5, pool: 'radio',
-    desc: 'Builds radio modules from your designs at cost. Unlocks exclusive network tech.' },
+    desc: 'Builds radio modules from your designs at cost.' },
   display:  { name: 'Display Fab', icon: '🖥️', cost: 14e6, days: 240, upkeep: 300e3, cap: 60000, unit: 'panels', spare: 5, pool: 'display',
-    desc: 'Produces your display designs at cost. Unlocks exclusive display tech.' },
+    desc: 'Produces your display designs at cost.' },
   camera:   { name: 'Camera Module Plant', icon: '📷', cost: 3e6, days: 120, upkeep: 110e3, cap: 100000, unit: 'camera modules', spare: 1.8, pool: 'camera',
-    desc: 'Builds your camera designs at cost. Unlocks exclusive camera tech.' },
+    desc: 'Builds your camera designs at cost.' },
   battery:  { name: 'Battery Cell Plant', icon: '🔋', cost: 2.5e6, days: 120, upkeep: 90e3, cap: 60000, unit: 'cells', spare: 1.2, pool: 'battery',
-    desc: 'Makes your battery designs at cost. Unlocks exclusive battery tech.' },
+    desc: 'Makes your battery designs at cost.' },
   memory:   { name: 'Memory Fab', icon: '💾', cost: 45e6, days: 360, upkeep: 1.3e6, cap: 250000, unit: 'memory sets', spare: 4.5, pool: 'memory',
-    desc: 'DRAM + flash fabrication from your designs at cost. Unlocks exclusive memory tech.' },
+    desc: 'DRAM + flash fabrication from your designs at cost.' },
   fab:      { name: 'Chip Fab', icon: '💠', cost: 0, days: 420, upkeep: 0, cap: 1000, unit: 'wafers',
     desc: 'A semiconductor fab locked to one process node. Wafers cost you ~30% of the foundry price.' },
-  rnd:      { name: 'R&D Center', icon: '🧪', cost: 2e6, days: 90, upkeep: 150e3, cap: 0, unit: '',
+  rnd:      { hidden: true, name: 'R&D Center', icon: '🧪', cost: 2e6, days: 90, upkeep: 150e3, cap: 0, unit: '',
     desc: 'Each level adds one parallel research project and +25% research speed.' },
 };
 const FACTORY_MAX_LEVEL = 5;
@@ -1369,7 +1415,37 @@ const RIVALS = [
   { id: 'zenith', name: 'Zenith', color: '#3fd09a', aware: [[2011, .2], [2016, .45], [2022, .65], [2040, .7]], skill: 0.92, priceMul: 0.8, rep: 7.0, month: 10.5,
     segs: { phone: ['budget', 'mid', 'premium'], tablet: ['budget', 'mid'] }, start: { phone: 2011, tablet: 2012.5 }, regions: [[2011, ['cn']], [2014, ['cn', 'rw']], [2017, ['cn', 'rw', 'eu', 'ea']]],
     names: { phone: { budget: 'Zenith Lite {n}', mid: 'Zenith {n}', premium: 'Zenith {n} Pro' }, tablet: { budget: 'Zenith Pad Lite {n}', mid: 'Zenith Pad {n}' } } },
+  // later arrivals: the market gets more crowded as it grows
+  { id: 'vantage', name: 'Vantage Radio', color: '#8fb3c9', aware: [[1976, .15], [1982, .35], [1990, .2]], skill: 1.0, priceMul: 0.95, rep: 7.4, month: 5,
+    segs: { phone: ['budget', 'mid'] }, start: { phone: 1976 }, end: 1994, regions: [[1976, ['na']], [1984, ['na', 'eu']]], form: 'car',
+    names: { phone: { budget: 'Vantage V{n}', mid: 'Vantage Pro {n}' } } },
+  { id: 'sable', name: 'Sable', color: '#6b6f7a', aware: [[1984, .1], [1990, .3], [1998, .4], [2005, .25], [2009, .1]], skill: 1.0, priceMul: 0.9, rep: 7.3, month: 1,
+    segs: { phone: ['budget', 'mid'] }, start: { phone: 1984 }, end: 2009.5, regions: [[1984, ['eu']], [1992, ['eu', 'na', 'rw']]], form: 'candybar',
+    names: { phone: { budget: 'Sable {n}10', mid: 'Sable {n}50' } } },
+  { id: 'polaris', name: 'Polaris', color: '#4ad0e0', aware: [[1990, .1], [1996, .35], [2004, .55], [2012, .6], [2040, .6]], skill: 1.05, priceMul: 1.05, rep: 8.1, month: 7,
+    segs: { phone: ['mid', 'premium', 'ultra'], tablet: ['premium'] }, start: { phone: 1990, tablet: 2012 }, regions: [[1990, ['ea']], [1995, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'flip',
+    names: { phone: { mid: 'Polaris P{n}', premium: 'Polaris Pole {n}', ultra: 'Polaris Aurora {n}' }, tablet: { premium: 'Polaris Slate {n}' } } },
+  { id: 'tidal', name: 'Tidal', color: '#2f7fd1', aware: [[1997, .15], [2003, .4], [2010, .35], [2016, .15]], skill: 0.98, priceMul: 0.86, rep: 7.2, month: 11,
+    segs: { phone: ['budget', 'mid'] }, start: { phone: 1997 }, end: 2018, regions: [[1997, ['ea', 'cn']], [2003, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'flip',
+    names: { phone: { budget: 'Tidal T{n}', mid: 'Tidal Wave {n}' } } },
+  { id: 'aurum', name: 'Aurum', color: '#d8b04a', aware: [[2003, .1], [2008, .3], [2015, .45], [2040, .5]], skill: 1.07, priceMul: 1.15, rep: 8.4, month: 9.5,
+    segs: { phone: ['premium', 'ultra'] }, start: { phone: 2003 }, regions: [[2003, ['eu', 'na']], [2009, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'slider',
+    names: { phone: { premium: 'Aurum {n}', ultra: 'Aurum {n} Luxe' } } },
+  { id: 'quanta', name: 'Quanta', color: '#7ac74f', aware: [[2009, .1], [2013, .35], [2020, .5], [2040, .55]], skill: 1.02, priceMul: 0.84, rep: 7.4, month: 3.5,
+    segs: { phone: ['budget', 'mid', 'premium'], tablet: ['budget'] }, start: { phone: 2009, tablet: 2013 }, regions: [[2009, ['cn']], [2012, ['cn', 'rw', 'ea']], [2016, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'touch',
+    names: { phone: { budget: 'Quanta Q{n}', mid: 'Quanta Q{n}+', premium: 'Quanta Q{n} Max' }, tablet: { budget: 'Quanta Tab {n}' } } },
+  { id: 'lumen', name: 'Lumen', color: '#f06292', aware: [[2014, .1], [2018, .3], [2025, .5], [2040, .55]], skill: 1.08, priceMul: 1.0, rep: 8.2, month: 6,
+    segs: { phone: ['mid', 'premium', 'ultra'] }, start: { phone: 2014 }, regions: [[2014, ['cn', 'ea']], [2018, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'touch',
+    names: { phone: { mid: 'Lumen {n}', premium: 'Lumen {n} Pro', ultra: 'Lumen {n} Ultra' } } },
+  { id: 'pivot', name: 'Pivot', color: '#b388ff', aware: [[2020, .08], [2025, .3], [2040, .45]], skill: 1.06, priceMul: 1.1, rep: 8.0, month: 8,
+    segs: { phone: ['premium', 'ultra'] }, start: { phone: 2020 }, regions: [[2020, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'fold',
+    names: { phone: { premium: 'Pivot Flip {n}', ultra: 'Pivot Fold {n}' } } },
+  { id: 'nexa', name: 'Nexa', color: '#ff8a65', aware: [[2024, .08], [2030, .35], [2040, .5]], skill: 1.04, priceMul: 0.82, rep: 7.6, month: 4.5,
+    segs: { phone: ['budget', 'mid', 'premium'] }, start: { phone: 2024 }, regions: [[2024, ['rw', 'cn']], [2027, ['na', 'eu', 'ea', 'cn', 'rw']]], form: 'touch',
+    names: { phone: { budget: 'Nexa {n}', mid: 'Nexa {n}s', premium: 'Nexa {n} Pro' } } },
 ];
+// established brands sharpen their engineering a little too
+for (const r of RIVALS) r.skill = +(r.skill + 0.02).toFixed(3);
 
 // ---- Chip vendors (sell off-the-shelf SoCs) ------------------------------------
 const VENDORS = [
@@ -1460,7 +1536,7 @@ const GOALS = [
   { id: 'bench1', text: 'Top a benchmark leaderboard', hint: 'Benchmarks tab: beat every phone on sale in one category.' },
   { id: 'seriesA', text: 'Close a Series A', hint: 'Grow monthly revenue so big investors take you seriously.' },
   { id: 'chip', text: 'Tape out your own custom chip', hint: 'Parts Lab → 💠 Processor: pick a node and blocks, then send it to the foundry.' },
-  { id: 'exclusive', text: 'Research a technology before it becomes industry standard', hint: 'Exclusive tech = an edge nobody can buy.' },
+  { id: 'exclusive', text: 'Research a breakthrough before it becomes industry standard', hint: 'Breakthroughs come from researchers (👥 Staff).' },
   { id: 'b2b', text: 'Earn money from another brand', hint: 'Supply contracts, selling your chips, or licensing your tech.' },
   { id: 'share5', text: 'Reach 5% of the worldwide phone market', hint: 'Market tab shows share by brand.' },
   { id: 'ipo', text: 'Take the company public', hint: 'An IPO raises a fortune – if your revenue is big enough.' },

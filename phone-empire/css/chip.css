@@ -49,3 +49,5 @@
 .pl-opts .card.sub { padding: 10px 12px; }
 .pl-opts .card.sub > b { display: block; margin-bottom: 2px; }
 .pl-opts .card.sub .segbtn { flex-wrap: wrap; }
+.rival-stage { position: relative; min-height: 360px; border-radius: 12px; background: radial-gradient(circle at 50% 40%, #1d2433, #0d1017); overflow: hidden; }
+.rival-stage canvas { width: 100% !important; height: 100% !important; position: absolute; inset: 0; }

@@ -17,7 +17,7 @@ function nextStep() {
   if (S.research.length < researchSlots() && TECHS.some(tc => techState(tc) === 'available')) return ['Keep your research slots busy – rivals adopt new tech every year.', 'research', 'Research'];
   return null;
 }
-const statusTag = p => p.status === 'dev' ? `<span class="tag warn">dev ${Math.max(0, p.devUntil - S.day)}d</span>` : p.discontinued ? '<span class="tag">clearing stock</span>' : p.status === 'retired' ? '<span class="tag">retired</span>' : '<span class="tag good">on sale</span>';
+const statusTag = p => p.status === 'dev' ? `<span class="tag warn">dev ${Math.max(0, p.devUntil - S.day)}d</span>${p.revealed ? ' <span class="tag acc">unveiled</span>' : ''}` : p.status === 'ready' ? `<span class="tag acc">ready · ${p.release.mode === 'days' ? 'out in ' + Math.max(0, p.releaseDay - S.day) + 'd' : p.release.mode === 'stock' ? 'out at ' + fmtNum(stockTarget(p)) + ' in stock' : 'on hold'}</span>${p.revealed ? ' <span class="tag acc">unveiled</span>' : ''}` : p.discontinued ? '<span class="tag">clearing stock</span>' : p.status === 'retired' ? '<span class="tag">retired</span>' : '<span class="tag good">on sale</span>';
 function lineStatus(p) {
   if (p.discontinued) return '<span class="faint">ended</span>';
   if (!p.lineMaker) return `<span class="bad">${esc(p.lineMsg || 'no manufacturer')}</span>`;
@@ -182,7 +182,8 @@ const Production = {
           ${prods.map(p => {
             const cover = p.demand > 1 ? p.inventory / p.demand * 30 : null;
             const opts = makerOptions(p);
-            return `<tr data-pid="${p.id}"><td><b>${esc(p.name)}</b><div class="tiny faint">${statusTag(p)}</div></td>
+            const rel = p.status === 'dev' || p.status === 'ready' ? `<div class="row mt-s" style="gap:4px"><select data-relmode class="small">${Object.entries(RELEASE_TEXT).map(([k, l]) => `<option value="${k}" ${p.release.mode === k ? 'selected' : ''}>Release ${l}</option>`).join('')}</select>${p.release.mode === 'days' ? `<input type="number" data-reldays value="${p.release.days}" min="1" max="365" style="width:60px"> d` : ''}${p.status === 'ready' ? '<button class="btn sm primary" data-relnow>🚀 Release now</button>' : ''}</div>` : '';
+            return `<tr data-pid="${p.id}"><td><b>${esc(p.name)}</b><div class="tiny faint">${statusTag(p)}</div>${rel}</td>
               <td>${p.discontinued ? '—' : `<select data-maker class="small"><option value="auto" ${p.line.maker === 'auto' ? 'selected' : ''}>Auto (cheapest)${p.line.maker === 'auto' && p.lineMaker ? ': ' + esc(makerName(p.lineMaker)) : ''}</option>
                 ${opts.map(o => `<option value="${o.m}" ${p.line.maker === o.m ? 'selected' : ''} ${o.prob ? 'disabled' : ''}>${esc(makerName(o.m))}${o.prob ? ' – ' + esc(o.prob.slice(0, 50)) : ' · ' + fmtMoney(o.unit)}</option>`).join('')}</select>`}</td>
               <td>${p.discontinued ? '—' : `<select data-mode class="small"><option value="auto" ${p.line.mode === 'auto' ? 'selected' : ''}>Match demand</option><option value="manual" ${p.line.mode === 'manual' ? 'selected' : ''}>Fixed rate</option></select>
@@ -228,7 +229,13 @@ const Production = {
       if (e.target.dataset.maker != null) { p.line.maker = e.target.value; assignMaker(p); }
       if (e.target.dataset.mode != null) { p.line.mode = e.target.value; if (p.line.mode === 'manual' && !p.line.rate) p.line.rate = Math.round((p.demand || p.forecast || 100) / 100) * 100; }
       if (e.target.dataset.rate != null) p.line.rate = Math.max(0, Math.round(+e.target.value) || 0);
+      if (e.target.dataset.relmode != null) { p.release.mode = e.target.value; if (p.status === 'ready' && p.release.mode === 'days') p.releaseDay = S.day + p.release.days; if (p.status === 'ready' && p.release.mode === 'ready') releaseProduct(p); }
+      if (e.target.dataset.reldays != null) { p.release.days = clamp(Math.round(+e.target.value) || 30, 1, 365); if (p.status === 'ready') p.releaseDay = S.day + p.release.days; }
       renderCurrent(true);
+    };
+    el.onclick = e => {
+      const row = e.target.closest('[data-pid]');
+      if (row && e.target.closest('[data-relnow]')) { const p = S.products.find(x => x.id === row.dataset.pid); if (p && p.status === 'ready') { releaseProduct(p); renderCurrent(true); } }
     };
   },
 };
@@ -275,7 +282,7 @@ const Factories = {
     if (!this.fabNode || !fabNodes.some(n => n.nm === this.fabNode)) this.fabNode = fabNodes[fabNodes.length - 1].nm;
     const fn = nodeByNm(this.fabNode);
     el.innerHTML = `
-      <div class="view-title"><h1>🏭 Factories</h1><p>Own plants build devices and your part designs at cost, unlock exclusive tech – and can sell their capacity to rivals.</p></div>
+      <div class="view-title"><h1>🏭 Factories</h1><p>Own plants build devices and your part designs at cost – and can sell their capacity to rivals.</p></div>
       ${S.offers.length || S.contracts.length ? `<div class="card mb"><h2>🤝 Supply contracts <span class="sub">rival brands want your capacity</span></h2>
         ${S.contracts.length ? `<h3>Active</h3><table class="tbl">${S.contracts.map(c => `<tr><td><b>${esc(c.buyer)}</b></td><td>${fmtNum(c.qty)} ${c.label}/mo</td><td class="num">${fmtMoney(c.price)} each</td><td class="num">${c.monthsLeft} months left</td><td class="num tiny faint">cost ~${fmtMoney(contractUnitCost(c.type))}</td></tr>`).join('')}</table>` : ''}
         ${S.offers.length ? `<h3>Offers</h3><div class="scroll-x"><table class="tbl">${S.offers.map(o => `<tr data-off="${o.id}"><td><b>${esc(o.buyer)}</b></td><td>${fmtNum(o.qty)} ${o.label}/month for ${o.months} months</td><td class="num">${fmtMoney(o.price)} each</td>
@@ -295,7 +302,7 @@ const Factories = {
             <td class="right nowrap">${f.level < FACTORY_MAX_LEVEL && f.status === 'active' && !f.upgradeUntil ? `<button class="btn sm" data-up>Expand · ${fmtMoney(upgradeCost(f))}</button>` : ''} <button class="btn sm danger" data-sell>Sell</button></td></tr>`;
         }).join('')}</tbody></table></div></div>` : ''}
       <div class="grid auto">
-        ${['workshop', 'assembly', 'radio', 'display', 'camera', 'battery', 'memory', 'rnd'].map(type => {
+        ${['workshop', 'assembly', 'radio', 'display', 'camera', 'battery', 'memory'].map(type => {
           const ft = FACTORY_TYPES[type], cost = factoryBuildCost(type);
           const n = owned.filter(f => f.type === type).length;
           return `<div class="card fac"><div class="hd"><div class="ic">${ft.icon}</div><div><div class="nm">${ft.name}</div><div class="tiny faint">${n ? n + ' owned' : 'not owned'}</div></div></div>
@@ -353,23 +360,26 @@ const Research = {
     const counts = { done: 0, available: 0 };
     for (const tc of shown) { const s = techState(tc); if (s === 'done') counts.done++; if (s === 'available') counts.available++; }
     const catCounts = Object.fromEntries(cats.map(c => [c, TECHS.filter(tc => tc.cat === c && techState(tc) === 'available').length]));
-    const intro = S.playstyle === 'maker' ? 'Every part, network, feature and size step must be researched before you can use it. Being first is expensive and exclusive – catching up is cheap.'
-      : 'Your suppliers bring part technology as it becomes industry standard. Research what makes your phones yours – design, features, chips and business. Being first is expensive and exclusive – catching up is cheap.';
-    const note = suppliedCat(this.cat) ? `Comes from suppliers once it is standard. Because you own a ${FACTORY_TYPES[this.cat === 'manufacturing' ? 'assembly' : TECH_CATS[this.cat].factory].name}, you can research it early and make it exclusive.` : TECH_CATS[this.cat].note;
+    const intro = (S.playstyle === 'maker' ? 'Every part, network, feature and size step must be researched before you can use it.'
+      : 'Your suppliers bring part technology as it becomes industry standard. Research what makes your phones yours – design, features, chips and business.')
+      + ' Research costs research points (RP), earned every day – hire researchers in 👥 Staff to earn more. Tech opens when it is invented; breakthroughs open it years early – for you or for a rival.';
+    const note = suppliedCat(this.cat) ? `Comes from suppliers once it is standard. You own the matching plant, so you can research it yourself too.` : TECH_CATS[this.cat].note;
+    const bts = TECHS.filter(tc => S.breakthroughs && S.breakthroughs[tc.id] && !S.researched[tc.id] && t < tc.market);
     el.innerHTML = `
       <div class="view-title"><h1>🔬 Research</h1><p>${intro}</p></div>
       <div class="grid g4 mb">
-        <div class="kpi"><div class="l">Research slots</div><div class="v">${S.research.length} / ${slots}</div><div class="d dim">R&D Centers add more</div></div>
-        <div class="kpi"><div class="l">Research speed</div><div class="v">${Math.round(spd * 100)}%</div><div class="d dim">+25% per R&D Center level</div></div>
-        <div class="kpi"><div class="l">Researched</div><div class="v">${counts.done} / ${shown.length}</div><div class="d dim">${counts.available} available now</div></div>
-        <div class="kpi"><div class="l">Exclusive tech</div><div class="v excl">${TECHS.filter(tc => S.researched[tc.id] && t < tc.market && !tc.never).length}</div><div class="d dim">yours before the industry</div></div>
+        <div class="kpi"><div class="l">Research points</div><div class="v">${fmtRP(S.rp || 0)}</div><div class="d dim">+${Math.round(rpPerDay())} a day · ${staffN('research')} researchers</div></div>
+        <div class="kpi"><div class="l">Research slots</div><div class="v">${S.research.length} / ${slots}</div><div class="d dim">max ${MAX_RS_SLOTS} · every 4 researchers add one</div></div>
+        <div class="kpi"><div class="l">Research speed</div><div class="v">${Math.round(spd * 100)}%</div><div class="d dim">researchers speed it up</div></div>
+        <div class="kpi"><div class="l">Researched</div><div class="v">${counts.done} / ${shown.length}</div><div class="d dim">${counts.available} available now${bts.length ? ` · <b class="excl">${bts.length} breakthrough${bts.length > 1 ? 's' : ''}</b>` : ''}</div></div>
       </div>
+      ${bts.length ? `<div class="card mb"><h2>💡 Breakthroughs <span class="sub">invented early by your researchers – research them before rivals catch up</span></h2><div class="rs-grid">${bts.map(tc => this.card(tc)).join('')}</div></div>` : ''}
       ${S.research.length ? `<div class="card mb"><h2>In progress</h2>${S.research.map(r => {
         const tc = TECH[r.id];
         return `<div class="row wrap" style="padding:5px 0"><b class="rs-prog-name">${TECH_CATS[tc.cat].icon} ${tc.name}</b><div class="grow" style="min-width:120px">${meter(r.progress / r.days)}</div><span class="small dim nowrap">${r.days - r.progress} days left</span></div>`;
       }).join('')}</div>` : ''}
       <div class="row wrap mb">${segBtn('rcat', cats.map(k => ({ v: k, label: `${TECH_CATS[k].icon} ${TECH_CATS[k].name}${catCounts[k] ? ` <span class="pill-n">${catCounts[k]}</span>` : ''}` })), this.cat)}</div>
-      ${hidden.length ? `<div class="note mb">📦 <b>From your suppliers:</b> ${hidden.map(c => `${TECH_CATS[c].icon} ${TECH_CATS[c].name}`).join(' · ')}. New tech in these fields reaches you automatically once it is industry standard. Build the matching plant in 🏭 Factories to research it early and make it exclusive.</div>` : ''}
+      ${hidden.length ? `<div class="note mb">📦 <b>From your suppliers:</b> ${hidden.map(c => `${TECH_CATS[c].icon} ${TECH_CATS[c].name}`).join(' · ')}. New tech in these fields reaches you automatically once it is industry standard. Build the matching plant in 🏭 Factories to research it yourself.</div>` : ''}
       <div class="row wrap mb between">${segBtn('rmode', [{ v: 'tree', label: '🌳 Tree' }, { v: 'list', label: '☰ List' }], this.mode)}
         ${this.mode === 'list' ? segBtn('rsf', [{ v: 'next', label: 'Available & upcoming' }, { v: 'all', label: 'Everything' }], this.filter) : '<span class="tiny faint">Scroll sideways through time · click a node</span>'}</div>
       <div class="tiny faint mb">${note}</div>
@@ -385,7 +395,7 @@ const Research = {
       const b = e.target.closest('[data-rs]');
       if (b) { if (report(startResearch(b.dataset.rs))) { toast('Research started: ' + TECH[b.dataset.rs].name, 'good'); renderCurrent(true); renderNav(); } return; }
       const lic = e.target.closest('[data-lic]');
-      if (lic) { confirmBox('License ' + esc(TECH[lic.dataset.lic].name) + '?', 'Rivals get to use it too – you lose your exclusive edge – but they pay you royalties every month until it becomes industry standard.', 'License it', () => { report(licenseTech(lic.dataset.lic)); renderCurrent(true); }); return; }
+      if (lic) { confirmBox('License ' + esc(TECH[lic.dataset.lic].name) + '?', 'Rivals get to use your breakthrough too, but they pay you royalties every month until it becomes industry standard.', 'License it', () => { report(licenseTech(lic.dataset.lic)); renderCurrent(true); }); return; }
       const node = e.target.closest('[data-node]');
       if (node) { this.sel = node.dataset.node; $('#treeInfo').innerHTML = this.card(TECH[this.sel]); $$('.tnode', el).forEach(n => n.classList.toggle('sel', n.dataset.node === this.sel)); return; }
       const sb = e.target.closest('.segbtn button');
@@ -438,10 +448,10 @@ const Research = {
     let html = `<div class="tree-inner" style="width:${W}px;height:${H}px">${svg}`;
     for (const tc of list) {
       const p = pos[tc.id], st = techState(tc);
-      const ex = st === 'done' && t < tc.market;
+      const ex = (st === 'done' && t < tc.market) || (S.breakthroughs && S.breakthroughs[tc.id] && st !== 'done');
       const cross = tc.req.concat(tc.reqAny || []).filter(r => !pos[r] && TECH[r].cat !== this.cat);
       html += `<div class="tnode ${st} ${ex ? 'ex' : ''} ${this.sel === tc.id ? 'sel' : ''}" data-node="${tc.id}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" title="${esc(tc.desc)}">
-        <span class="tn-name">${esc(tc.name)}</span><span class="tn-sub">${st === 'done' ? (ex ? '◆ exclusive' : '✓') : st === 'active' ? 'researching…' : st === 'available' ? fmtMoney(researchCost(tc)) : st === 'future' ? 'opens ' + Math.floor(tc.market - tc.lead) : '🔒'}${cross.length ? ' · ' + cross.map(r => TECH_CATS[TECH[r].cat].icon).join('') : ''}</span></div>`;
+        <span class="tn-name">${esc(tc.name)}</span><span class="tn-sub">${st === 'done' ? (ex ? '💡 early' : '✓') : st === 'active' ? 'researching…' : st === 'available' ? (ex ? '💡 ' : '') + fmtRP(researchCost(tc)) : st === 'future' ? 'invented ' + Math.floor(tc.market) : '🔒'}${cross.length ? ' · ' + cross.map(r => TECH_CATS[TECH[r].cat].icon).join('') : ''}</span></div>`;
     }
     html += '</div>';
     if (never.length) html += `<div class="row wrap mt-s">${never.map(tc => `<button class="btn sm" data-node="${tc.id}">${esc(tc.name)}</button>`).join('')}</div>`;
@@ -456,12 +466,12 @@ const Research = {
     if (!tc) return '';
     const st = techState(tc), t = now();
     let foot = '';
-    if (st === 'available') foot = `<button class="btn sm primary" data-rs="${tc.id}">Research · ${fmtMoney(researchCost(tc))} · ${researchDays(tc)}d</button>`;
+    if (st === 'available') foot = `<button class="btn sm primary" data-rs="${tc.id}" ${(S.rp || 0) < researchCost(tc) ? 'title="Not enough research points yet"' : ''}>Research · ${fmtRP(researchCost(tc))} · ${researchDays(tc)}d</button>`;
     else if (st === 'active') foot = '<span class="tag acc">in progress</span>';
-    else if (st === 'done') foot = !tc.never && t < tc.market && TECH_CATS[tc.cat].factory ? (S.licensed[tc.id] ? `<span class="tag excl">licensed · ${fmtMoney(S.licensed[tc.id].monthly)}/mo</span>` : `<span class="tag excl">◆ exclusive until ${dateLabel(tc.market)}</span> <button class="btn sm" data-lic="${tc.id}" title="Earn royalties from rivals">License</button>`) : '<span class="tag good">researched</span>';
-    else if (st === 'future') foot = `<span class="tag">opens ${dateLabel(tc.never ? tc.opens : tc.market - tc.lead)}</span>`;
+    else if (st === 'done') foot = !tc.never && t < tc.market && TECH_CATS[tc.cat].factory ? (S.licensed[tc.id] ? `<span class="tag excl">licensed · ${fmtMoney(S.licensed[tc.id].monthly)}/mo</span>` : `<span class="tag excl">💡 ahead until ${dateLabel(tc.market)}</span> <button class="btn sm" data-lic="${tc.id}" title="Earn royalties from rivals">License</button>`) : '<span class="tag good">researched</span>';
+    else if (st === 'future') foot = `<span class="tag">invented ${dateLabel(tc.never ? tc.opens : tc.market)} – or by a breakthrough</span>`;
     else foot = `<span class="tag warn">needs ${esc(missingReqs(tc).join(', '))}</span>`;
-    const when = tc.never ? 'In-house only' : t < tc.market ? `Standard ${dateLabel(tc.market)} – researching now makes it exclusive` : `Industry standard since ${dateLabel(tc.market)}`;
+    const when = tc.never ? 'In-house only' : t < tc.market ? `💡 Breakthrough – the industry gets it ${dateLabel(tc.market)}` : `Industry standard since ${dateLabel(tc.market)}`;
     return `<div class="rs ${st}"><div class="row between"><span class="nm">${TECH_CATS[tc.cat].icon} ${tc.name}</span><span class="tiny faint">${tc.never ? '' : Math.floor(tc.market)}</span></div>
       <div class="ds">${tc.desc}</div><div class="tiny faint">${when}</div><div class="rs-foot">${foot}</div></div>`;
   },
@@ -478,7 +488,7 @@ const Market = {
     const brands = [{ id: 'you', name: S.company, color: '#6aa8ff' }].concat(RIVALS.filter(r => r.start[cat] != null && r.start[cat] <= t + 1 && (!r.end || t < r.end + 2)).map(r => ({ id: r.id, name: r.name, color: r.color })));
     const total = marketSize(cat, t);
     const phones = [];
-    for (const r of S.rivalPhones) if (r.active && r.cat === cat) { const rv = RIVALS.find(x => x.id === r.rival); phones.push({ name: r.name, brand: rv.name, color: rv.color, price: r.price, seg: r.seg, q: r.q, demand: r.demand || 0, launch: r.launch, subs: r.subs, form: r.form, yourChip: !!r.playerChip, spec: r.spec }); }
+    for (const r of S.rivalPhones) if (r.active && r.cat === cat) { const rv = RIVALS.find(x => x.id === r.rival); phones.push({ name: r.name, brand: rv.name, color: rv.color, price: r.price, seg: r.seg, q: r.q, demand: r.demand || 0, launch: r.launch, subs: r.subs, form: r.form, yourChip: !!r.playerChip, spec: r.spec, rid: r.full ? r.id : null }); }
     for (const p of S.products) if (p.status === 'active' && p.spec.cat === cat) phones.push({ name: p.name, brand: S.company, color: '#6aa8ff', mine: true, price: p.price, seg: segmentForPrice(cat, p.price, t), q: p.q, demand: p.demand || 0, launch: p.launch, subs: p.subs, form: formOf(p.spec) });
     const list = phones.filter(p => this.seg === 'all' || p.seg === this.seg).sort((a, b) => b.demand - a.demand);
     const split = segSplit(t), reg = regionShares(t);
@@ -519,7 +529,7 @@ const Market = {
       </div>
       <div class="card mt"><h2>Devices on sale <span class="sub">${segBtn('mseg', [{ v: 'all', label: 'All' }].concat(SEGMENTS.map(sg => ({ v: sg, label: SEG_INFO[sg].name }))), this.seg)}</span></h2>
         <div class="scroll-x"><table class="tbl"><thead><tr><th>Device</th><th>Brand</th><th>Segment</th><th class="num">Price</th><th class="num">Quality</th>${Object.keys(SUB_LABELS).map(k => `<th class="num" title="${SUB_LABELS[k]}">${SUB_ICONS[k]}</th>`).join('')}<th class="num">Sales/mo</th><th class="num">Launched</th></tr></thead><tbody>
-          ${list.slice(0, 60).map(p => `<tr class="${p.mine ? 'mine' : ''}" title="${p.spec ? esc(`${p.spec.dims} · ${p.spec.weight} g · ${p.spec.display} · ${p.spec.cam} · ${p.spec.battery} · ${p.spec.radio}`) : ''}"><td><b>${FORMS[p.form || 'touch'].icon} ${esc(p.name)}</b>${p.yourChip ? ' <span class="tag excl" title="Uses your chip">your chip</span>' : ''}</td><td><span class="swatch" style="background:${p.color}"></span>${esc(p.brand)}</td><td>${SEG_INFO[p.seg].name}</td>
+          ${list.slice(0, 80).map(p => `<tr class="${p.mine ? 'mine' : ''}" title="${p.spec ? esc(`${p.spec.dims} · ${p.spec.weight} g · ${p.spec.display} · ${p.spec.cam} · ${p.spec.battery} · ${p.spec.radio}`) : ''}"><td>${p.rid ? `<button class="btn xs" data-rview="${p.rid}" title="See it">👁</button> ` : ''}<b>${FORMS[p.form || 'touch'].icon} ${esc(p.name)}</b>${p.yourChip ? ' <span class="tag excl" title="Uses your chip">your chip</span>' : ''}</td><td><span class="swatch" style="background:${p.color}"></span>${esc(p.brand)}</td><td>${SEG_INFO[p.seg].name}</td>
             <td class="num">${fmtMoney(p.price)}</td><td class="num"><b>${p.q ? Math.round(p.q[p.seg]) : '—'}</b></td>
             ${Object.keys(SUB_LABELS).map(k => `<td class="num dim">${p.subs ? Math.round(p.subs[k]) : '—'}</td>`).join('')}
             <td class="num">${fmtNum(p.demand)}</td><td class="num dim">${p.launch ? dateLabel(p.launch) : ''}</td></tr>`).join('')}
@@ -533,6 +543,8 @@ const Market = {
     const hist = S.shareHist.slice(-240);
     drawChart($('#shareChart'), brands.map(b => ({ name: b.name, color: b.color, width: b.id === 'you' ? 3 : 1.5, data: hist.map(h => [h.t, (h[cat][b.id] || 0) / h[cat].total * 100]) })), { yFmt: v => v.toFixed(0) + '%' });
     el.onclick = e => {
+      const rv = e.target.closest('[data-rview]');
+      if (rv) { rivalPhoneView(S.rivalPhones.find(x => x.id === rv.dataset.rview)); return; }
       const b = e.target.closest('.segbtn button');
       if (!b) return;
       if (b.parentElement.dataset.seg === 'mcat') this.cat = b.dataset.v;
@@ -542,6 +554,54 @@ const Market = {
   },
 };
 registerView('market', Market);
+// a rival's phone up close: the real 3D model and its spec sheet
+function rivalPhoneView(p) {
+  if (!p || !p.full) return;
+  const r = RIVALS.find(x => x.id === p.rival) || { name: '?', color: '#888' };
+  const chip = (p.chipId && vendorChipById(p.chipId)) || flagshipChip(p.launch);
+  const ev = evalPhone(p.full, p.launch, chip), sp = p.spec || {};
+  modal(`<h2>${FORMS[p.form || 'touch'].icon} ${esc(p.name)} <span class="sub">by ${esc(r.name)} · ${SEG_INFO[p.seg].name} · ${fmtMoney(p.price)}</span></h2>
+    <div class="grid g2"><div class="rival-stage" id="rivalStage"></div>
+      <div><div class="row wrap small dim">${reviewTag(p.review)} <span>launched ${dateLabel(p.launch)} · selling ${fmtNum(p.demand || 0)}/mo</span></div>
+        ${p.subs ? scoreBars(p.subs) : ''}
+        <h3>Specs</h3><div class="spec-list small">
+          <span class="k">Size</span><span class="v">${esc(sp.dims || '')} · ${sp.weight || '?'} g · ${esc(sp.mat || '')}</span>
+          <span class="k">Display</span><span class="v">${esc(sp.display || '')}</span><span class="k">Camera</span><span class="v">${esc(sp.cam || '')}</span>
+          <span class="k">Battery</span><span class="v">${esc(sp.battery || '')} · ${ev.hours == null ? 'car power' : ev.hours.toFixed(1) + ' h'}</span>
+          <span class="k">Memory</span><span class="v">${esc(sp.memory || '')}</span><span class="k">Radio</span><span class="v">${esc(sp.radio || '')}</span>
+          <span class="k">Chip</span><span class="v">${esc(p.chip || '')}</span></div></div></div>
+    <div class="actions"><button class="btn" data-spin>⟳ Spin</button><button class="btn primary" data-x>Close</button></div>`, d => {
+    const box = $('#rivalStage', d);
+    if (typeof Device3D !== 'undefined' && Device3D.mount(box)) { Device3D.setSpec(p.full, ev); Device3D.view('front'); }
+    else box.innerHTML = '<div class="no3d"><div class="big">📱</div><div class="tiny faint center">3D needs WebGL.</div></div>';
+    $('[data-spin]', d).onclick = () => Device3D.view('spin');
+    $('[data-x]', d).onclick = closeModal;
+  }, true);
+}
+
+// ---- Staff: hire the people who research, engineer, code, sell and promote ----------------------
+const Staff = {
+  name: 'Staff', icon: '👥',
+  render(el) {
+    const t = now();
+    el.innerHTML = `<div class="view-title"><h1>👥 Staff</h1><p>Your people decide how fast you invent, how good your phones are and how loud your ads are. Hiring costs about a month's pay; salaries are paid monthly.</p></div>
+      <div class="grid g4 mb">
+        <div class="kpi"><div class="l">Payroll</div><div class="v">${fmtMoney(payroll())}</div><div class="d dim">per month</div></div>
+        <div class="kpi"><div class="l">Research</div><div class="v">+${Math.round(rpPerDay())} RP/day</div><div class="d dim">${researchSlots()} of ${MAX_RS_SLOTS} slots · breakthrough chance ${fmtPct(breakthroughChance(), 0)}/mo</div></div>
+        <div class="kpi"><div class="l">Hardware / software</div><div class="v">${fmtPct(staffQuality().hw - 1, 0)} / ${fmtPct(staffQuality().sw - 1, 0)}</div><div class="d dim">quality bonus on your phones</div></div>
+        <div class="kpi"><div class="l">Ad power</div><div class="v">+${fmtPct(staffEffect('pr', 0.06, 1.2), 0)}</div><div class="d dim">store presence +${fmtPct(staffEffect('sales', 0.03, 0.45), 0)}</div></div>
+      </div>
+      <div class="grid auto">${Object.entries(STAFF).map(([k, st]) => `<div class="card fac"><div class="hd"><div class="ic">${st.icon}</div><div><div class="nm">${st.name}</div><div class="tiny faint">${staffN(k)} of ${st.max} · ${fmtMoney(staffSalary(k))}/mo each</div></div></div>
+        <div class="small dim grow">${st.desc}</div>
+        <div class="row wrap" style="gap:6px"><button class="btn primary" data-hire="${k}" data-n="1">Hire</button><button class="btn" data-hire="${k}" data-n="5">+5</button><button class="btn danger" data-hire="${k}" data-n="-1" ${staffN(k) ? '' : 'disabled'}>Let go</button></div></div>`).join('')}</div>
+      <div class="tiny faint mt">Rivals bring their own engineering skill and research; a big, well-staffed rival out-builds a lean start-up. Salaries follow the economy of the era (${dateLabel(t)}).</div>`;
+    el.onclick = e => {
+      const b = e.target.closest('[data-hire]');
+      if (b && !b.disabled) { if (report(hire(b.dataset.hire, +b.dataset.n))) renderCurrent(true); }
+    };
+  },
+};
+registerView('staff', Staff);
 
 // ---- Benchmarks ----------------------------------------------------------------------------------
 const BENCH_COLS = [
@@ -660,7 +720,7 @@ const Finance = {
   render(el) {
     const h = S.history.slice(-12);
     const rows = [['Device sales (after retail cut)', 'revenue', 1], ['From other brands (contracts, chips, royalties)', 'b2b', 1], ['Spare capacity sales', 'spare', 1],
-      ['Cost of devices sold', 'sold', -1], ['Contract & chip production', 'cogs', -1], ['Manufacturer line fees', 'lines', -1], ['Factory upkeep', 'upkeep', -1], ['Research', 'rnd', -1], ['Development, tooling & tape-outs', 'dev', -1],
+      ['Cost of devices sold', 'sold', -1], ['Contract & chip production', 'cogs', -1], ['Manufacturer line fees', 'lines', -1], ['Factory upkeep', 'upkeep', -1], ['Research', 'rnd', -1], ['Staff salaries', 'staff', -1], ['Development, tooling & tape-outs', 'dev', -1],
       ['Patent royalties', 'royalty', -1], ['Warranty & returns', 'warranty', -1], ['Freight, duties & logistics', 'logistics', -1],
       ['Marketing', 'marketing', -1], ['Overhead & staff', 'overhead', -1], ['Interest', 'interest', -1], ['Penalties & recalls', 'penalty', -1], ['Corporate tax (22%)', 'tax', -1]];
     const mkt = marketSize('phone', now()) * segBudget('phone', 'mid', now());
@@ -679,6 +739,8 @@ const Finance = {
         <div class="small dim mt-s">Ads, retail placement and sponsorships raise brand awareness (now <b>${fmtPct(S.aware)}</b> overall). It fades ~2.5% per month without support; happy customers spread the word. Big rivals sit at 30–90%. The whole market spends about ${fmtMoney(mkt)} a month on phones.</div>
         ${this.mktTargeting()}
       </div>
+      ${this.deviceAds()}
+      ${this.eventsCard()}
       <div class="card mt"><h2>Profit & loss <span class="sub">last ${h.length} months</span></h2>
         ${h.length ? `<div class="scroll-x"><table class="tbl"><thead><tr><th></th>${h.map(m => `<th class="num">${dateLabel(m.t)}</th>`).join('')}</tr></thead><tbody>
           ${rows.filter(([, k]) => h.some(m => m[k])).map(([label, k, sg]) => `<tr><td class="dim nowrap">${label}</td>${h.map(m => `<td class="num ${sg < 0 && m[k] ? 'bad' : ''}">${m[k] ? (sg < 0 ? '−' : '') + fmtMoney(Math.abs(m[k])) : '—'}</td>`).join('')}</tr>`).join('')}
@@ -705,7 +767,40 @@ const Finance = {
     el.onclick = e => {
       const f = e.target.closest('[data-mfocus]');
       if (f) { ensureMkt(); const k = f.dataset.mfocus; S.mktFocus[k] = !S.mktFocus[k]; renderCurrent(true); }
+      const et = e.target.closest('[data-evtype]');
+      if (et) { this.evType = et.dataset.evtype; renderCurrent(true); }
+      if (e.target.closest('[data-host]')) {
+        const ids = $$('[data-evp]:checked', el).map(x => x.dataset.evp), days = +($('#evDays', el) || { value: 0 }).value;
+        if (report(hostEvent(this.evType || 'press', ids, days))) { toast('Event booked!', 'good'); renderCurrent(true); }
+      }
     };
+    el.onchange = e => {
+      const a = e.target.closest('[data-adp]');
+      if (a) { const p = S.products.find(x => x.id === a.dataset.adp); if (p) { p.ads = Math.max(0, Math.round(+a.value / 100) * 100); toast(`${p.name}: ${fmtMoney(p.ads)}/month on its own ads`); renderCurrent(true); } }
+    };
+  },
+  // every device can have its own ad budget on top of the brand campaign
+  deviceAds() {
+    const ps = S.products.filter(p => (p.status === 'active' || p.status === 'ready' || p.status === 'dev') && !p.discontinued);
+    if (!ps.length) return '';
+    return `<div class="card mt"><h2>📺 Device ads <span class="sub">each device's own campaign, on top of the brand budget</span></h2>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Device</th><th>Status</th><th class="num">Ads / month</th><th class="num">Sales lift</th></tr></thead><tbody>
+      ${ps.map(p => `<tr><td><b>${esc(p.name)}</b></td><td>${statusTag(p)}</td><td class="num"><input type="number" data-adp="${p.id}" value="${p.ads || 0}" min="0" step="1000" style="width:110px"></td><td class="num">${p.ads ? '+' + Math.round((productAdMul(p) - 1) * 100) + '%' : '—'}</td></tr>`).join('')}
+      </tbody></table></div><div class="tiny faint mt-s">Device ads lift that device's sales directly (diminishing returns) and count toward brand awareness. PR staff (👥 Staff) make every ad dollar work harder.</div></div>`;
+  },
+  // unveil devices at a launch event before they go on sale
+  eventsCard() {
+    const type = this.evType || 'press', E = EVENT_TYPES[type];
+    const hidden = S.products.filter(p => (p.status === 'dev' || p.status === 'ready') && !isPublic(p));
+    const booked = (S.events || []).filter(e => !e.done);
+    return `<div class="card mt"><h2>🎤 Launch events <span class="sub">unveil devices nobody has seen yet – they sell more when they go on sale</span></h2>
+      <div class="cluster">${Object.entries(EVENT_TYPES).map(([k, x]) => `<button class="btn sm ${k === type ? 'primary' : ''}" data-evtype="${k}">${x.icon} ${x.name} · ${fmtMoney(eventCost(k, 1))}</button>`).join('')}</div>
+      <div class="tiny faint mt-s">${E.desc} Launch demand ×${E.mult.toFixed(2)} (fading over a few months) and a little brand awareness. Devices already on sale or already shown can't be unveiled again.</div>
+      ${hidden.length ? `<div class="mt-s">${hidden.map(p => `<label class="chk small" style="margin-right:12px"><input type="checkbox" data-evp="${p.id}" checked> ${esc(p.name)} <span class="faint">(${statusTag(p)})</span></label>`).join('')}</div>
+        <div class="row wrap mt-s"><span class="small dim">Hold it in</span><select id="evDays">${[[0, 'today'], [7, '1 week'], [14, '2 weeks'], [30, '1 month'], [60, '2 months']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+          <button class="btn primary" data-host>${E.icon} Host the ${E.name.toLowerCase()}</button><span class="tiny faint">+15% cost per extra device</span></div>`
+        : '<div class="note mt-s">No unrevealed devices. Start developing one (📱 Phone Lab) and choose a later release date or "hold" so you can unveil it first.</div>'}
+      ${booked.length ? `<h3>Booked</h3>${booked.map(b => `<div class="small">${EVENT_TYPES[b.type].icon} ${EVENT_TYPES[b.type].name} in ${Math.max(0, b.day - S.day)} days: ${b.products.map(id => esc((S.products.find(p => p.id === id) || { name: '?' }).name)).join(', ')}</div>`).join('')}` : ''}</div>`;
   },
   // where the ads run (segments) and what they say (message focus)
   mktTargeting() {

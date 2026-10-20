@@ -36,13 +36,13 @@ function costScale(t) {
     const rows = [];
     for (let y = FIRST_YEAR; y <= 2060; y++) {
       const tt = y + 0.5, ok = id => !id || !TECH[id] || TECH[id].market <= tt;
-      // mid-range parts at ~36% of a mid-range price, flagship parts at ~40% of a premium price
+      // a mid-range phone's parts at ~46% of a mid-range price, a flagship's at ~44% of a premium price
       const need = (seg, share) => {
         const s = rivalSpec('phone', seg, tt, null, ok, null), chip = vendorChipById(s.chip.id), c = evalPhone(s, tt, chip).costs;
         const bom = chipSilicon(chip, tt) + c.display + Object.values(c.cams).reduce((a, b) => a + b, 0) + c.battery + c.memory + c.radio + c.body + c.misc + c.os + c.labor;
         return Math.log(share * segBudget('phone', seg, tt) / Math.max(1, bom));
       };
-      rows.push((need('mid', 0.36) + need('premium', 0.34)) / 2);
+      rows.push((need('mid', 0.46) + need('premium', 0.44)) / 2);
     }
     _rawCosts = false;
     const sm = rows.map((v, i) => { let a = 0, n = 0; for (let k = Math.max(0, i - 3); k <= Math.min(rows.length - 1, i + 3); k++) { a += rows[k]; n++; } return a / n; });
@@ -1001,6 +1001,7 @@ function evalPhone(spec, t, chip) {
     if (ok) pts += p;
   }
   pts += addPts;
+  pts *= refineMul('features', spec, t);
   if (os.needsTouch && !touchOk) notes.push(`− ${os.name} without a touchscreen`);
   // ---- layout & ergonomics ----
   const camBox = rearCams ? (() => {
@@ -1022,7 +1023,7 @@ function evalPhone(spec, t, chip) {
   const art = spec.art || {}, nStamps = Math.min(8, (spec.stamps || []).length);
   const artF = (artDrawn(art.logo) ? 1.01 : 1) * (1 + 0.012 * Math.min(nStamps, 3) - 0.012 * Math.max(0, nStamps - 4));
   const style = mat.q * fin.q * (1 + water.q + bodyUp.water) * lay.score * (0.7 + 0.3 * drop) * Math.pow(Math.max(0.05, stb), 0.35) * extAnt * bumpF * edgeF * addDesign
-    * bodyUp.q * NAV_KEYS[navk.keys].design * artF;
+    * bodyUp.q * NAV_KEYS[navk.keys].design * artF * refineMul('design', spec, t);
   if (bump > 0.5) notes.push(`− ${bump.toFixed(1)} mm camera bump`);
   // ---- performance raw ----
   const pixels = disp.res[0] * disp.res[1];
@@ -1047,6 +1048,12 @@ function evalPhone(spec, t, chip) {
     weight: totalWeight, vol: volume, thick: T, style, form,
     feat: pts,
   };
+  // your staff's hardware and software quality (rivals bring their own engineering skill)
+  if (!spec.npc && typeof staffQuality === 'function' && typeof S !== 'undefined' && S && S.staff) {
+    const q = staffQuality();
+    for (const k of ['cpu', 'gpu', 'cam', 'disp', 'style']) raw[k] *= q.hw;
+    raw.feat *= q.sw;
+  }
   // ---- unit costs (before supplier/contract markups) ----
   const costs = { display: disp.cost, battery: bat ? bat.cost : 0, memory: mem.cost, radio: radio ? radio.cost : 0, cams: {} };
   for (const k in camStats) costs.cams[k] = camStats[k].cost;
@@ -1212,8 +1219,16 @@ const REFINE = {
   battery: ['bat_shaped', 'bat_bms', 'bat_bypass', 'bat_graphene', 'bat_multitab'],
   memory: ['mem_dpd', 'mem_hpb', 'mem_mcp', 'mem_pop', 'mem_wb'],
   network: ['rf_div', 'rf_tuner', 'rf_fem', 'rf_ai'],
+  design: [], features: [],
 };
-const REFINE_GAIN = { display: 0.02, camera: 0.025, battery: 0.025, memory: 0.02, network: 0.02 };
+// the early-game refinements (each a few % better at its part type)
+for (const id of ['xrf_duplex', 'xrf_squelch', 'xrf_trunk', 'xrf_handoff', 'xrf_lna', 'xrf_filter', 'xrf_sleep', 'xrf_helix']) REFINE.network.push(id);
+for (const id of ['xdisp_bright', 'xdisp_contrast', 'xdisp_temp', 'xdisp_green', 'xdisp_icons', 'xdisp_fast']) REFINE.display.push(id);
+for (const id of ['xbat_charger', 'xbat_gauge', 'xbat_memfix', 'xbat_nimh', 'xbat_trickle']) REFINE.battery.push(id);
+for (const id of ['xmem_nvram', 'xmem_eeprom', 'xmem_pack']) REFINE.memory.push(id);
+REFINE.design.push('xdes_ergo', 'xdes_rubber', 'xdes_mould', 'xdes_color', 'xdes_curve', 'xdes_soft', 'xdes_hinge2', 'xdes_seal');
+REFINE.features.push('xfeat_redial', 'xfeat_speed', 'xfeat_lock', 'xfeat_clock', 'xfeat_calc', 'xfeat_ring', 'xfeat_cal', 'xfeat_menu', 'xfeat_t9');
+const REFINE_GAIN = { display: 0.02, camera: 0.025, battery: 0.025, memory: 0.02, network: 0.02, design: 0.015, features: 0.025 };
 function refineMul(cat, spec, t) {
   let n = 0;
   const mine = !spec.npc && typeof S !== 'undefined' && S && S.researched;

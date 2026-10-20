@@ -331,7 +331,7 @@ const PhoneLab = {
   palColor(i, d) { const c = LOGO_PALETTE[i]; return c === 'accent' ? (d && d.style.accent) || '#f08a3c' : c; },
   // frames, cooling, ruggedness, textures, coatings and frame finishes
   upgradeCards(d) {
-    const t = now(), price = o => (o.cost ? ' · ' + fmtMoney(o.cost * decl(0.08, o.tech ? techMarket(o.tech) : 2000, t, 0.3)) : '');
+    const t = now(), price = o => (o.cost ? ' · ' + fmtMoney(o.cost * decl(0.08, o.tech ? techMarket(o.tech) : 2000, t, 0.3) * costScale(t)) : '');
     const eff = o => [o.therm && o.therm !== 1 ? `heat ×${o.therm.toFixed(2)}` : '', o.drop && o.drop !== 1 ? `toughness ×${o.drop.toFixed(2)}` : '', o.wt ? `${o.wt > 0 ? '+' : ''}${o.wt} g` : '', o.vol ? `${o.vol} cm³` : '', o.t ? `+${o.t} mm` : ''].filter(Boolean).join(' · ');
     const sec = (k, title, cols) => `<h3>${title}</h3>${optCards('up.' + k, Object.entries(BODY_UPGRADES[k]).map(([v, o]) => ({ v, title: o.name, sub: [o.desc, eff(o)].filter(Boolean).join(' ') + price(o), tech: o.tech })), d.up[k], cols || 2)}`;
     return sec('frame', 'Inner frame') + sec('cooling', 'Cooling') + sec('rugged', 'Ruggedness', 3) + sec('texture', 'Back texture', 3) + sec('coating', 'Coating') + sec('framefin', 'Frame finish', 3);
@@ -417,7 +417,7 @@ const PhoneLab = {
     };
     return `${['main', 'front', 'ultra', 'tele'].map(slot).join('')}
       ${d.cams.main ? `<h3>Flash</h3>${optCards('flash', Object.entries(FLASHES).map(([k, f]) => ({ v: k, title: f.name, tech: f.tech })), d.flash)}` : ''}
-      <div class="tiny faint mt-s">Taller modules make a camera bump on thin phones. Design your own in the 🛠️ Parts Lab: bigger apertures, more lens elements, sensor-shift stabilization, exclusive sensors.</div>`;
+      <div class="tiny faint mt-s">Taller modules make a camera bump on thin phones. Design your own in the 🛠️ Parts Lab: bigger apertures, more lens elements, sensor-shift stabilization, breakthrough sensors.</div>`;
   },
   // body size: every dimension is auto (fits the parts) or a target. Thinner than the parts need makes the
   // body taller; with the height fixed too, the parts must fit – or you pick smaller ones.
@@ -439,9 +439,49 @@ const PhoneLab = {
       ${hand ? '' : sl('t', 'Thickness', Tmin, Tmax, g.T, `min ${Tmin.toFixed(1)} · ${z.tallest}`)}
       ${z.short > 0 ? `<div class="note bad">⛔ ${z.short.toFixed(1)} cm³ of parts don't fit – they need ${z.fitT.toFixed(1)} mm at this size.</div>` : ''}
       ${z.grewBy > 0.5 ? `<div class="tiny warn">↕ ${z.grewBy.toFixed(0)} mm taller than the front needs, to fit the parts at this thickness.</div>` : ''}
-      ${hand ? '<div class="tiny faint mt-s">The electronics live in the car unit, not the handset.</div>' : this.spaceBars(ev)}
+      ${hand ? '<div class="tiny faint mt-s">The electronics live in the car unit, not the handset.</div>' : this.spaceBars(ev) + this.powerBars(ev)}
       <div class="row wrap mt-s">${z.custom ? '<button class="btn sm" data-act="autosize">↺ All auto</button>' : ''}
         ${big ? `<button class="btn sm" data-act="fillbat">🔋 Biggest battery that fits: ${esc(big.name)} (+${(big.p.mah - d.battery.p.mah).toLocaleString('en-US')} mAh)</button>` : ''}</div>`;
+  },
+  // the power budget: what the parts turn into heat vs what the body can shed, and what drains the battery
+  powerBars(ev) {
+    const P = ev.power, cap = Math.max(P.heat, P.shed, 0.01), over = P.heat > P.shed * 1.02;
+    const parts = [['🧠 Processor', P.chip], ['💾 Memory', P.memory], ['🖥️ Screen', 0.25 * P.display]];
+    return `<div class="space mt-s"><div class="row between tiny"><b>⚡ Heat at full load</b><span class="mono ${over ? 'bad' : ''}">${P.heat.toFixed(1)} of ${P.shed.toFixed(1)} W the body sheds${over ? ` · throttles to ${Math.round(ev.sustain * 100)}%` : ' · full speed'}</span></div>
+      <div class="space-bar">${parts.map(([l, v], i) => `<span class="sp${[1, 3, 4][i]}" style="width:${(v / cap * 100).toFixed(2)}%" title="${l}: ${v.toFixed(2)} W"></span>`).join('')}</div>
+      <div class="tiny dim">${parts.map(([l, v]) => `${l} ${v.toFixed(2)} W`).join(' · ')}</div>
+      <div class="tiny faint">Battery drain in daily use ${ev.avgPower.toFixed(2)} W → ${ev.hours == null ? 'car power' : ev.hours.toFixed(1) + ' h'}. A bigger, thicker body, better cooling (🧩 upgrades) or cooler chips and memory avoid throttling.</div></div>`;
+  },
+  // release timing, the device's own ads, and a pointer to launch events
+  launchDialog(d) {
+    const dev = devCost(d.cat), t = now(), mk = marketSize(d.cat, t) * segBudget(d.cat, 'mid', t);
+    const sugg = Math.round(mk * 0.0008 / 1000) * 1000;
+    modal(`<h2>🚀 Develop & launch the ${esc(d.name)}</h2>
+      <div class="small dim">Development takes 45 days and costs <b>${fmtMoney(dev)}</b>. Its production line starts building stock right away.</div>
+      <h3>When does it go on sale?</h3>
+      <div class="col" style="gap:6px">
+        <label class="chk"><input type="radio" name="rel" value="ready" checked> As soon as development is done</label>
+        <label class="chk"><input type="radio" name="rel" value="days"> <input type="number" id="relDays" value="30" min="1" max="365" style="width:64px"> days after development</label>
+        <label class="chk"><input type="radio" name="rel" value="stock"> When stock covers launch demand (about three weeks of sales)</label>
+        <label class="chk"><input type="radio" name="rel" value="hold"> Keep it under wraps – I'll release it myself (📦 Production)</label>
+      </div>
+      <div class="tiny faint mt-s">Unreleased devices can be unveiled at a launch event (💰 Finance → 🎤 Launch events) for a burst of demand when they go on sale.</div>
+      <h3>Its own ad budget</h3>
+      <div class="row wrap"><input type="number" id="relAds" value="0" min="0" step="1000" style="width:120px"><span class="small dim">per month, on top of your brand campaign · a solid push is ~${fmtMoney(sugg)}</span></div>
+      <div class="actions"><button class="btn" data-x>Cancel</button><button class="btn primary" data-go>Start development · ${fmtMoney(dev)}</button></div>`, m => {
+      $('[data-x]', m).onclick = closeModal;
+      $('[data-go]', m).onclick = () => {
+        const mode = ($('input[name="rel"]:checked', m) || { value: 'ready' }).value;
+        const opts = { mode, days: +$('#relDays', m).value || 30, ads: Math.max(0, +$('#relAds', m).value || 0) };
+        const name = d.name;
+        if (report(launchProduct(d, opts))) {
+          closeModal();
+          S.draft = Object.assign(defaultDraft(d.cat, now()), { color: d.color });
+          toast(`${name} is in development – it goes on sale ${RELEASE_TEXT[mode]}.`, 'good');
+          showView('production');
+        }
+      };
+    });
   },
   // where the room inside goes
   spaceBars(ev) {
@@ -472,7 +512,7 @@ const PhoneLab = {
       ${ev.needDsp ? '<div class="note warn mb-s">Digital radio needs a DSP: an extra DSP chip is added (cost, power, volume). Pick a chip with a DSP or modem block.</div>' : ''}
       <div class="tiny faint mb-s">Performance is what the chip delivers at full speed; in this ${ev.geom.T.toFixed(1)} mm body it can shed ${ev.thermBudget.toFixed(1)} W before it throttles. 📦 is the room it takes on the board.</div>
       <div class="chip-cards">${rows.map(r => {
-        const sp = chipSpace(r.c), sus = Math.min(1, Math.pow(ev.thermBudget / Math.max(0.01, r.c.power), 0.6));
+        const sp = chipSpace(r.c), sus = Math.min(1, Math.pow(ev.thermBudget / Math.max(0.01, r.c.power + ev.power.memory + 0.25 * ev.power.display), 0.6));
         return `<div class="ocard ${sel === r.key ? 'on' : ''}" data-chip="${r.key}">
         <div class="row between"><div class="oc-t">${r.custom ? '💠 ' : ''}${esc(r.c.name)}</div><b class="mono">${fmtMoney(r.price)}</b></div>
         <div class="oc-s mono">⚡ CPU ${fmtSci(r.c.cpu)} · GPU ${r.c.gpu ? fmtSci(r.c.gpu) : '—'}${r.c.tops ? ' · AI ' + r.c.tops.toFixed(1) : ''} · ${nodeLabel(r.c.nm)}${r.c.hasModem ? ' · ' + GEN_LABEL(r.c.modemGen) + ' modem' : ''}${r.c.dsp ? ' · DSP' : ''}</div>
@@ -496,7 +536,7 @@ const PhoneLab = {
       <div class="tiny faint mb-s">Extra keys, sensors and gadgets. Each one adds cost, room and weight – and feature points if the phone can use it. Placeable ones show up in 📐 Layout.</div>
       <div class="ocards" style="--cols:2">${shown.map(k => {
         const A = ADDONS[k], why = addonProblem(k, ctx);
-        const cost = A.cost * decl(0.08, techMarket(A.tech), t, 0.3);
+        const cost = A.cost * decl(0.08, techMarket(A.tech), t, 0.3) * costScale(t);
         return toggleCard('addons.' + k, A.name, `${esc(A.desc)} · ${fmtMoney(cost)}${A.design && A.design < 1 ? ' · looks clunky' : A.design > 1 ? ' · looks great' : ''}`, A.tech, !!on[k], on[k] ? null : why);
       }).join('')}</div>`;
   },
@@ -522,7 +562,7 @@ const PhoneLab = {
   ownList(type, d) {
     const ref = type === 'display' ? d.display : d[type];
     const list = S.designs.filter(x => x.type === type);
-    if (!list.length) return `<div class="note">You haven't designed a ${PART_INFO[type].name.toLowerCase()} yet. Open the <b>${PART_INFO[type].lab}</b> to engineer one: cheaper per unit, tuned to your phone, and able to use exclusive tech.</div>
+    if (!list.length) return `<div class="note">You haven't designed a ${PART_INFO[type].name.toLowerCase()} yet. Open the <b>${PART_INFO[type].lab}</b> to engineer one: cheaper per unit, tuned to your phone, and able to use breakthrough tech before suppliers sell it.</div>
       <div class="mt-s"><button class="btn primary" data-golab="${type}">Open ${PART_INFO[type].lab} →</button></div>`;
     return '<div class="chip-cards">' + list.map(x => {
       const st = PART_EVAL[type](x.p, now(), x.role);
@@ -748,7 +788,7 @@ const PhoneLab = {
     if (ev.sustain < 0.75) warn.push(`<div class="note warn">🔥 Chip draws ${chip.power.toFixed(1)} W, body sheds ~${ev.thermBudget.toFixed(1)} W: ${Math.round(ev.sustain * 100)}% sustained performance.</div>`);
     if (margin < 0) warn.push(`<div class="note bad">💸 You lose ${fmtMoney(-margin)} on every unit.</div>`);
     if (ev.notes.length) warn.push(`<div class="note">${ev.notes.map(esc).join('<br>')}</div>`);
-    if (excl.length) warn.push(`<div class="note" style="border-color:var(--excl)">◆ Exclusive tech: ${excl.slice(0, 4).map(id => TECH[id].name).join(', ')}</div>`);
+    if (excl.length) warn.push(`<div class="note" style="border-color:var(--excl)">💡 Ahead of the industry: ${excl.slice(0, 4).map(id => TECH[id].name).join(', ')}</div>`);
     const b = ev.bench;
     const R = k => expect(d.cat, k, t);
     const bench = [
@@ -913,14 +953,7 @@ const PhoneLab = {
       if (a === 'reset') { const keep = { color: d().color }; S.draft = Object.assign(defaultDraft(d().cat, now()), keep); changed(); }
       if (a === 'stddisp') { d().display = stdRef('display', d()); changed(); }
       if (a === 'proto') { if (report(buildPrototype(d()))) toast('Prototype on the bench – ready in 14 days.', 'good'); changed(); }
-      if (a === 'launch') {
-        const name = d().name;
-        if (report(launchProduct(d()))) {
-          S.draft = Object.assign(defaultDraft(d().cat, now()), { color: d().color });
-          toast(`${name} is in development! Its production line will build stock for the launch.`, 'good');
-          showView('production');
-        }
-      }
+      if (a === 'launch') { const err = checkSpec(d()); if (err) report(err); else this.launchDialog(d()); }
     };
     // paint the logo: drag to draw with a 1–3 px brush, or flood-fill an area; palette 0 erases
     el.onpointerdown = e => {

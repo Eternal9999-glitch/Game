@@ -24,7 +24,7 @@ function labUI(id) {
 function labFoot(u, compact) {
   if (!compact || u.ok || !u.rs) return lockFoot(u);
   const tc = TECH[u.rs];
-  return `<button class="btn sm oc-rs" data-rs="${u.rs}" title="${esc(u.msg)}">🔬 ${fmtMoney(researchCost(tc))} · ${researchDays(tc)}d</button>`;
+  return `<button class="btn sm oc-rs" data-rs="${u.rs}" title="${esc(u.msg)}">🔬 ${fmtRP(researchCost(tc))} · ${researchDays(tc)}d</button>`;
 }
 // keep the menu short: everything researched (last few) plus the next couple of steps
 function labWindow(opts, value, keepOk, extra) {
@@ -293,14 +293,14 @@ const PartsLab = {
           <div><span class="tiny faint">Your ${FACTORY_TYPES[type].name}</span><b class="${plant ? 'good' : 'faint'}">${own != null ? fmtMoney(own) : 'not built'}</b></div>
         </div>
       </div>
-      ${excl.length ? `<div class="note lab-excl">◆ <b>Exclusive tech:</b> ${excl.slice(0, 4).map(id => esc(TECH[id].name)).join(', ')}${excl.length > 4 ? '…' : ''}. Nobody else can make this yet –
+      ${excl.length ? `<div class="note lab-excl">◆ <b>Ahead of the industry:</b> ${excl.slice(0, 4).map(id => esc(TECH[id].name)).join(', ')}${excl.length > 4 ? '…' : ''}. Suppliers don't sell this yet –
         only your own <b>${FACTORY_TYPES[type].name}</b> can build it ${plant ? '<span class="good">(you have one ✓)</span>' : `(build one in 🏭 Factories · ${fmtMoney(factoryBuildCost(type))})`}.</div>` : ''}
       <div class="card lab-eng">
         ${labRules(st && st.rules)}
         ${probs.filter(x => !(st && st.rules || []).some(r => r.err && r.text === x)).map(x => `<div class="note bad">⛔ ${esc(x)}</div>`).join('')}
         <button class="btn primary lg lab-go" data-act="engineer" ${probs.length ? 'disabled' : ''} title="${esc(probs[0] || '')}">🛠️ Engineer & tool up · ${fmtMoney(cost)} · ${days} d</button>
         <div class="tiny faint">Prototypes, validation and production tooling. Then the design shows up in the Phone Lab under “Your designs”.
-          Own designs skip the supplier markup (contract makers charge ×${CONTRACT_MARKUP}, your own plant builds at cost), can use exclusive tech, and let you tune what suppliers keep standard.</div>
+          Own designs skip the supplier markup (contract makers charge ×${CONTRACT_MARKUP}, your own plant builds at cost), can use breakthrough tech, and let you tune what suppliers keep standard.</div>
       </div>`;
   },
   // [label, formatted, better(a,b)?, raw]

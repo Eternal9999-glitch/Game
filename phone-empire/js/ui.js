@@ -11,8 +11,8 @@ const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), 
 function setPath(o, p, v) { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; }
 
 const VIEWS = {};          // id -> {name, icon, render(el), live?}
-const VIEW_ORDER = ['hq', 'phonelab', 'labs', 'research', 'production', 'factories', 'market', 'bench', 'investors', 'finance'];
-const NAV_SEPS = [3, 6];
+const VIEW_ORDER = ['hq', 'phonelab', 'labs', 'research', 'staff', 'production', 'factories', 'market', 'bench', 'investors', 'finance'];
+const NAV_SEPS = [3, 5, 7];
 let currentView = 'hq';
 let pointerDown = false;
 document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
@@ -92,7 +92,7 @@ function renderNav() {
 // ---- top bar -------------------------------------------------------------------------
 function renderTop() {
   $('#companyName').textContent = S.company;
-  $('#date').textContent = dateLabel(now());
+  $('#date').textContent = dayLabel(now());
   $$('.speed').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed));
   const last = S.history[S.history.length - 1];
   const prof = last ? last.profit : 0;
@@ -101,6 +101,7 @@ function renderTop() {
     [`<b class="${S.cash < 0 ? 'bad' : ''}">${fmtMoney(S.cash)}</b>`, 'Cash'],
     [`<b class="${prof > 0 ? 'good' : prof < 0 ? 'bad' : ''}">${prof > 0 ? '+' : ''}${fmtMoney(prof)}</b>`, 'Last month'],
     [`<b>${fmtMoney(netWorth())}</b>`, 'Net worth'],
+    [`<b>${fmtRP(S.rp || 0)}</b>`, `Research +${Math.round(rpPerDay())}/day`],
     [`<b>${fmtNum(units)}</b>`, 'Demand / mo'],
     [`<b>${fmtPct(S.aware)}</b>`, 'Awareness'],
     [`<b>${S.rep.toFixed(1)}</b>`, 'Reputation'],
@@ -165,11 +166,11 @@ function techUI(id, mode) {
   } else if (av.ok(id)) return { ok: true, ex: !av.market(id) };
   const st = techState(tc);
   if (st === 'supplied') return { ok: false, msg: `${supplierWord(tc)} from ${dateLabel(tc.market)}` };
-  if (st === 'done') return { ok: false, msg: `Researched – needs your own ${FACTORY_TYPES[TECH_CATS[tc.cat].factory].name} until ${dateLabel(tc.market)}` };
+  if (st === 'done') return { ok: true };
   if (st === 'active') { const r = S.research.find(x => x.id === id); return { ok: false, msg: `Researching… ${Math.round(r.progress / r.days * 100)}%` }; }
-  if (st === 'future') return { ok: false, msg: `Can't be researched before ${dateLabel(tc.never ? tc.opens : tc.market - tc.lead)}` };
+  if (st === 'future') return { ok: false, msg: `Not invented until ${dateLabel(tc.never ? tc.opens : tc.market)} (or a breakthrough)` };
   if (st === 'locked') return { ok: false, msg: 'Needs ' + missingReqs(tc).join(', ') };
-  return { ok: false, rs: id, msg: `${tc.name}: ${fmtMoney(researchCost(tc))} · ${researchDays(tc)} d${now() < tc.market ? ' · exclusive' : ''}` };
+  return { ok: false, rs: id, msg: `${tc.name}: ${fmtRP(researchCost(tc))} · ${researchDays(tc)} d${now() < tc.market ? ' · 💡 breakthrough' : ''}` };
 }
 function lockFoot(u) {
   if (u.ok) return u.ex ? '<span class="oc-ex">◆ exclusive</span>' : '';
