@@ -285,22 +285,9 @@ function backPanelMaterial(mat, color, finish) {
   const frosted = finish === 'frosted' || finish === 'matte';
   return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), roughness: frosted ? 0.5 : 0.08, metalness: 0.05, clearcoat: frosted ? 0.3 : 1, clearcoatRoughness: frosted ? 0.4 : 0.03 });
 }
-// a key cap in a shape the player drew (10×10 mask): extruded outline with a soft bevel, centered
-function maskKeyGeo(mask, w, h, depth) {
-  const v = ([x, y]) => new THREE.Vector2((x - 0.5) * w, (y - 0.5) * h);
-  const shapes = maskOutlines(mask, ART_N.shape).map(o => {
-    const sh = new THREE.Shape(o.pts.map(v));
-    for (const hp of o.holes) sh.holes.push(new THREE.Path(hp.map(v)));
-    return sh;
-  });
-  if (!shapes.length) return null;
-  const geo = new THREE.ExtrudeGeometry(shapes, { depth: depth * 0.6, bevelEnabled: true, bevelThickness: depth * 0.2, bevelSize: Math.min(w, h) * 0.03, bevelSegments: 2, curveSegments: 1 });
-  geo.translate(0, 0, -depth / 2);
-  return geo;
-}
 // the player's pixel logo (16×16 palette indices) as a crisp texture
 function logoArtTex(art, accent) {
-  const n = ART_N.logo, sc = 8, cv = makeCanvas(n * sc, n * sc), g = cv.getContext('2d');
+  const n = Math.max(1, Math.round(Math.sqrt(art.length))), sc = Math.max(1, Math.round(256 / n)), cv = makeCanvas(n * sc, n * sc), g = cv.getContext('2d');
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const c = +art[j * n + i] || 0;
     if (!c) continue;
@@ -763,24 +750,22 @@ function buildDeviceInner(spec, ev) {
     const atlas = labelAtlas([...new Set(keys.map(k => k.l).filter(Boolean))], keyLight ? '#2a2d33' : '#e9edf5');
     const idx = {}; [...new Set(keys.map(k => k.l).filter(Boolean))].forEach((l, i) => { idx[l] = i; });
     const labMat = new THREE.MeshBasicMaterial({ map: atlas.tex, transparent: true });
-    // key styles: classic rounded keys, round buttons, a flush (gapless, flat) pad, pillowy bubble keys – or a
-    // shape you drew. Every key can have its own.
-    const shapes = (spec.art || {}).shapes || [];
+    // key styles: classic rounded keys, round buttons, a flush (gapless, flat) pad or pillowy bubble keys –
+    // every key can have its own
     for (const k of keys) {
       const w = k.w * MM, h = k.h * MM;
       let ks = k.shape || style.keys || 'classic';
-      const drawn = /^c\d$/.test(ks) && artDrawn(shapes[+ks[1]]) ? shapes[+ks[1]] : null;
-      if (/^c\d$/.test(ks) && !drawn) ks = 'classic';
+      if (!['classic', 'round', 'flush', 'bubble'].includes(ks)) ks = 'classic';
       const kd = ks === 'flush' ? 0.025 : ks === 'bubble' ? 0.11 : 0.07;
       const mat = k.c ? new THREE.MeshStandardMaterial({ color: k.c, roughness: 0.4 }) : keyMat;
-      const disc = !drawn && (k.round || (ks === 'round' && k.l));
+      const disc = k.round || (ks === 'round' && k.l);
       const kw = ks === 'flush' && !k.moved ? w * 1.18 : w, kh = ks === 'flush' && !k.moved ? h * 1.25 : h, rr = k.round ? w / 2 : Math.min(w, h) / 2;
-      const geo = (drawn && maskKeyGeo(drawn, w, h, kd)) || (disc ? new THREE.CylinderGeometry(rr, rr, kd, 28) : slabGeo(kw, kh, kd, Math.min(kw, kh) * (ks === 'bubble' ? 0.5 : ks === 'flush' ? 0.12 : 0.35), 'round'));
+      const geo = disc ? new THREE.CylinderGeometry(rr, rr, kd, 28) : slabGeo(kw, kh, kd, Math.min(kw, kh) * (ks === 'bubble' ? 0.5 : ks === 'flush' ? 0.12 : 0.35), 'round');
       const m = new THREE.Mesh(geo, mat);
       if (disc) m.rotation.x = Math.PI / 2;
       m.position.set(toX(k.x), toY(k.y), z + kd / 2);
       parent.add(m);
-      if (k.round && !drawn) {
+      if (k.round) {
         const dot = new THREE.Mesh(new THREE.CircleGeometry(w * 0.2, 20), new THREE.MeshStandardMaterial({ color: keyLight ? 0xc8ccd3 : 0x15171c, roughness: 0.5 }));
         dot.position.set(toX(k.x), toY(k.y), z + kd + 0.002); parent.add(dot);
       }
