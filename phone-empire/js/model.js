@@ -713,41 +713,7 @@ function keypadKeys(spec, rect, form) {
   }
   return keys;
 }
-// a drawn shape (n×n string of 0/1) as closed outlines: [{pts:[[x,y]…], holes:[[…]]}] in 0…1, y up
-function maskOutlines(mask, n) {
-  if (!mask || mask.indexOf('1') < 0) return [];
-  const on = (i, j) => i >= 0 && j >= 0 && i < n && j < n && mask[j * n + i] === '1';
-  const edges = new Map(), key = (a, b) => a + ',' + b;
-  const addE = (x1, y1, x2, y2) => { const r = key(x2, y2) + '>' + key(x1, y1); if (edges.has(r)) edges.delete(r); else edges.set(key(x1, y1) + '>' + key(x2, y2), [x1, y1, x2, y2]); };
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    if (!on(i, j)) continue;
-    const x = i, y = n - 1 - j;                              // y up
-    addE(x, y, x + 1, y); addE(x + 1, y, x + 1, y + 1); addE(x + 1, y + 1, x, y + 1); addE(x, y + 1, x, y);
-  }
-  const from = new Map();
-  for (const e of edges.values()) { const k = key(e[0], e[1]); if (!from.has(k)) from.set(k, []); from.get(k).push(e); }
-  const loops = [];
-  while (from.size) {
-    const [k0, list0] = from.entries().next().value;
-    let e = list0.pop(); if (!list0.length) from.delete(k0);
-    const pts = [[e[0], e[1]]];
-    for (let guard = 0; guard < 4 * n * n; guard++) {
-      const k = key(e[2], e[3]), list = from.get(k);
-      if (!list) break;
-      e = list.pop(); if (!list.length) from.delete(k);
-      pts.push([e[0], e[1]]);
-    }
-    // drop points in the middle of straight runs
-    const simp = pts.filter((p, i) => { const a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length]; return (p[0] - a[0]) * (b[1] - p[1]) !== (p[1] - a[1]) * (b[0] - p[0]); });
-    const area = simp.reduce((s, p, i) => { const q = simp[(i + 1) % simp.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
-    if (simp.length >= 3) loops.push({ pts: simp.map(([x, y]) => [x / n, y / n]), area });
-  }
-  const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
-  const outer = loops.filter(l => l.area > 0).map(l => ({ pts: l.pts, holes: [] }));
-  for (const h of loops.filter(l => l.area < 0)) { const o = outer.find(ol => inside([h.pts[0][0] + 1e-4, h.pts[0][1] + 1e-4], ol.pts)) || outer[0]; if (o) o.holes.push(h.pts); }
-  return outer;
-}
-const ART_N = { shape: 10, logo: 16 };
+const ART_N = { logo: 32 };
 const LOGO_PALETTE = ['', '#ffffff', '#111318', 'accent', '#d4af37', '#c0c6cf', '#e04848', '#3d7bea', '#3fbf6a'];
 const artDrawn = s => !!s && /[1-9]/.test(s);
 // the room a processor takes on the board (cm³) and how tall its package stands (mm): bigger dies need
@@ -1052,10 +1018,9 @@ function evalPhone(spec, t, chip) {
   const extAnt = radio && radio.ext ? (radio.antLen > 100 ? 0.93 : 0.98) : 1;
   const bumpF = bump > 0 ? Math.max(0.85, 1 - bump * 0.025) : 1;
   const edgeF = spec.style && spec.style.edge === 'round' ? 1.02 : spec.style && spec.style.edge === 'chamfer' ? 1.015 : 1;
-  // your own art: a drawn logo, logo stamps around the body (a few look designed, too many look cluttered), drawn keys
+  // your own art: a drawn logo and logo stamps around the body (a few look designed, too many look cluttered)
   const art = spec.art || {}, nStamps = Math.min(8, (spec.stamps || []).length);
-  const drawnKeys = F.kp && [(spec.style || {}).keys].concat(Object.values(spec.keyShape || {})).some(k => /^c\d$/.test(k || '') && artDrawn((art.shapes || [])[+k[1]]));
-  const artF = (artDrawn(art.logo) ? 1.01 : 1) * (1 + 0.012 * Math.min(nStamps, 3) - 0.012 * Math.max(0, nStamps - 4)) * (drawnKeys ? 1.006 : 1);
+  const artF = (artDrawn(art.logo) ? 1.01 : 1) * (1 + 0.012 * Math.min(nStamps, 3) - 0.012 * Math.max(0, nStamps - 4));
   const style = mat.q * fin.q * (1 + water.q + bodyUp.water) * lay.score * (0.7 + 0.3 * drop) * Math.pow(Math.max(0.05, stb), 0.35) * extAnt * bumpF * edgeF * addDesign
     * bodyUp.q * NAV_KEYS[navk.keys].design * artF;
   if (bump > 0.5) notes.push(`− ${bump.toFixed(1)} mm camera bump`);

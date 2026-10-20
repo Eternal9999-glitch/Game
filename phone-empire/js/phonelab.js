@@ -45,32 +45,21 @@ function stdRef(type, d, role, like, vendor) {
   const p = stdBuilder(type, d, role);
   return p && stdPartOk(type, p, role, d) ? { src: 'std', p } : null;
 }
-// ---- drawn art: key-shape presets and a logo from your initial ----
-const KEY_PRESETS = [['circle', '●'], ['square', '■'], ['heart', '♥'], ['star', '★'], ['diamond', '◆'], ['pill', '▬']];
-function presetMask(name, n) {
-  const star = Array.from({ length: 10 }, (_, i) => { const a = Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 0.21 : 0.5; return [Math.cos(a) * r, Math.sin(a) * r]; });
-  const inPoly = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+// ---- drawn art: a logo from your initial; old 16×16 logos grow to the 32×32 grid ----
+const hexLum = c => { const m = /^#?([0-9a-f]{6})$/i.exec(c || ''); if (!m) return 0.5; const v = parseInt(m[1], 16); return (((v >> 16) & 255) * 0.3 + ((v >> 8) & 255) * 0.59 + (v & 255) * 0.11) / 255; };
+function upscaleLogo(art) {
+  const m = Math.round(Math.sqrt(art.length)), n = ART_N.logo, k = n / m;
+  if (!m || m >= n || k !== Math.floor(k)) return art;
   let out = '';
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const x = (i + 0.5) / n - 0.5, y = 0.5 - (j + 0.5) / n, ax = Math.abs(x), ay = Math.abs(y);
-    let on = false;
-    if (name === 'circle') on = x * x + y * y < 0.23;
-    else if (name === 'square') on = ax < 0.46 && ay < 0.46 && !(ax > 0.3 && ay > 0.3 && (ax - 0.3) ** 2 + (ay - 0.3) ** 2 > 0.026);
-    else if (name === 'heart') { const X = x * 2.4, Y = (y + 0.06) * 2.4; on = Math.pow(X * X + Y * Y - 1, 3) - X * X * Y * Y * Y < 0; }
-    else if (name === 'star') on = inPoly(x, y, star);
-    else if (name === 'diamond') on = ax + ay < 0.5;
-    else if (name === 'pill') on = ay < 0.3 && (ax < 0.2 || (ax - 0.2) ** 2 + y * y < 0.09);
-    out += on ? '1' : '0';
-  }
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) out += art[Math.floor(j / k) * m + Math.floor(i / k)] || '0';
   return out;
 }
-const hexLum = c => { const m = /^#?([0-9a-f]{6})$/i.exec(c || ''); if (!m) return 0.5; const v = parseInt(m[1], 16); return (((v >> 16) & 255) * 0.3 + ((v >> 8) & 255) * 0.59 + (v & 255) * 0.11) / 255; };
 function initialLogo(letter, col) {
   const n = ART_N.logo, cv = document.createElement('canvas');
   cv.width = cv.height = n;
   const g = cv.getContext('2d');
-  g.font = `900 ${n + 1}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
-  g.fillText(letter || 'N', n / 2, n / 2 + 1);
+  g.font = `900 ${Math.round(n * 0.95)}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
+  g.fillText(letter || 'N', n / 2, n / 2 + n * 0.05);
   const px = g.getImageData(0, 0, n, n).data;
   let out = '';
   for (let i = 0; i < n * n; i++) out += px[i * 4 + 3] > 110 ? col : '0';
@@ -124,6 +113,7 @@ function sanitizeDraft(d) {
   const blank = blankSpec(d.cat);
   for (const k in blank) if (d[k] == null) d[k] = clone(blank[k]);
   for (const k of ['body', 'style', 'cams', 'feat', 'size', 'place', 'nav', 'up', 'art']) for (const kk in blank[k]) if (d[k][kk] == null) d[k][kk] = clone(blank[k][kk]);
+  if (d.art.logo && d.art.logo.length < ART_N.logo * ART_N.logo) d.art.logo = upscaleLogo(d.art.logo);
   if (!Array.isArray(d.stamps)) d.stamps = [];
   d.stamps = d.stamps.filter(st => st && LAYOUT_TYPES.stamp.faces.includes(st.f)).slice(0, 8);
   if (d.cat === 'tablet') d.form = 'slate';
@@ -198,7 +188,7 @@ function suggestPrice(d) {
 
 // ---- the lab --------------------------------------------------------------------------------
 const PhoneLab = {
-  name: 'Phone Lab', icon: '📱', live: false, tab: 'body', partMode: {}, catVendor: {}, catSort: {}, camOpen: 'main', sel: null, selKey: null, selStamp: null, paintCol: 1,
+  name: 'Phone Lab', icon: '📱', live: false, tab: 'body', partMode: {}, catVendor: {}, catSort: {}, camOpen: 'main', sel: null, selKey: null, selStamp: null, paintCol: 1, paintTool: 'pen', paintBrush: 1, grid: 0,
   render(el) {
     if (!S.draft) S.draft = defaultDraft('phone', now());
     sanitizeDraft(S.draft);
@@ -304,12 +294,8 @@ const PhoneLab = {
         <label class="tiny dim row" style="gap:4px">Custom <input type="color" id="accentPick" value="${esc(d.style.accent || d.color)}"></label></div>
       <h3>Front panel</h3>${segBtn('front', [{ v: 'black', label: '⬛ Black' }, { v: 'white', label: '⬜ White' }], d.style.front || 'black')}
       ${isKeypadForm(formOf(d)) || ['car', 'bag'].includes(formOf(d)) ? `<h3>Keys</h3>
-        ${segBtn('keys', [{ v: 'classic', label: 'Classic' }, { v: 'round', label: 'Round' }, { v: 'flush', label: 'Flush pad' }, { v: 'bubble', label: 'Bubble' }].concat([0, 1, 2].filter(i => artDrawn(d.art.shapes[i])).map(i => ({ v: 'c' + i, label: '✏️ Drawn ' + (i + 1) }))), d.style.keys || 'classic')}
-        <div class="mt-s">${segBtn('keytone', [{ v: 'auto', label: 'Auto' }, { v: 'light', label: 'Light keys' }, { v: 'dark', label: 'Dark keys' }, { v: 'accent', label: 'Accent' }], d.style.keyTone || 'auto')}</div>
-        <h3>Key shapes <span class="faint">draw your own</span></h3>
-        <div class="tiny faint mb-s">Paint a shape, then use it for all keys (above) or for single keys in 📐 Layout. Start from a preset if you like.</div>
-        <div class="paint-row">${[0, 1, 2].map(i => `<div class="paint-slot"><div class="tiny dim">Shape ${i + 1}</div>${this.painter('shape' + i, d.art.shapes[i] || '', ART_N.shape)}
-          <div class="row wrap" style="gap:3px">${KEY_PRESETS.map(([k, ic]) => `<button class="btn xs" data-preset="${i}:${k}" title="${k}">${ic}</button>`).join('')}<button class="btn xs" data-paintclear="shape${i}" title="Clear">✕</button></div></div>`).join('')}</div>` : ''}
+        ${segBtn('keys', [{ v: 'classic', label: 'Classic' }, { v: 'round', label: 'Round' }, { v: 'flush', label: 'Flush pad' }, { v: 'bubble', label: 'Bubble' }], d.style.keys || 'classic')}
+        <div class="mt-s">${segBtn('keytone', [{ v: 'auto', label: 'Auto' }, { v: 'light', label: 'Light keys' }, { v: 'dark', label: 'Dark keys' }, { v: 'accent', label: 'Accent' }], d.style.keyTone || 'auto')}</div>` : ''}
       <h3>Shape</h3>
       ${capSlider('style.radius', 'Corner roundness', 0, 1, 0.05, d.style.radius, v => Math.round(v * 100) + '%')}
       ${segBtn('edge', [{ v: 'round', label: 'Rounded edges' }, { v: 'flat', label: 'Flat sides' }, { v: 'chamfer', label: 'Chamfered' }], d.style.edge)}
@@ -323,17 +309,24 @@ const PhoneLab = {
       <h3>Logo</h3><input type="text" data-path="style.logo" value="${esc(d.style.logo || '')}" placeholder="${esc(S.company.split(' ')[0].toUpperCase())}" maxlength="14" class="full">
       <div class="mt-s">${optCards('up.logostyle', Object.entries(LOGO_STYLES).map(([k, o]) => ({ v: k, title: o.name, sub: o.desc, tech: o.tech })), d.up.logostyle, 4)}</div>
       <h3>Logo art <span class="faint">${artDrawn(d.art.logo) ? 'drawn' : 'using your brand name'}</span></h3>
-      <div class="tiny faint mb-s">Draw a 16×16 logo. It replaces the printed name, and you can stamp it anywhere on the body (📐 Layout → 🔖 Logo stamp) – a few stamps look designed.</div>
-      <div class="row wrap" style="gap:12px;align-items:flex-start">${this.painter('logo', d.art.logo || '', ART_N.logo)}
-        <div><div class="pal">${LOGO_PALETTE.map((c, i) => `<button class="pal-c ${(this.paintCol == null ? 1 : this.paintCol) === i ? 'on' : ''}" data-pal="${i}" title="${i ? '' : 'Eraser'}" style="background:${i ? this.palColor(i, d) : 'transparent'}">${i ? '' : '⌫'}</button>`).join('')}</div>
+      <div class="tiny faint mb-s">Draw a ${ART_N.logo}×${ART_N.logo} logo. It replaces the printed name, and you can stamp it anywhere on the body (📐 Layout → 🔖 Logo stamp) – a few stamps look designed.</div>
+      <div class="logo-ed">${this.painter('logo', d.art.logo || '', ART_N.logo)}
+        <div class="logo-tools">
+          <div class="tiny dim">Color</div>
+          <div class="pal">${LOGO_PALETTE.map((c, i) => `<button class="pal-c ${(this.paintCol == null ? 1 : this.paintCol) === i ? 'on' : ''}" data-pal="${i}" title="${i ? '' : 'Eraser'}" style="background:${i ? this.palColor(i, d) : 'transparent'}">${i ? '' : '⌫'}</button>`).join('')}</div>
+          <div class="tiny dim mt-s">Tool</div>
+          ${segBtn('ptool', [{ v: 'pen', label: '✏️ Pen' }, { v: 'fill', label: '🪣 Fill' }], this.paintTool || 'pen')}
+          <div class="tiny dim mt-s">Brush</div>
+          ${segBtn('pbrush', [{ v: 1, label: '1 px' }, { v: 2, label: '2 px' }, { v: 3, label: '3 px' }], this.paintBrush || 1)}
           <div class="row wrap mt-s" style="gap:4px"><button class="btn xs" data-act="logoinitial">Start from my initial</button><button class="btn xs" data-paintclear="logo">Clear</button></div>
-          <div class="row wrap mt-s" style="gap:4px"><button class="btn sm" data-act="addstamp" ${d.stamps.length >= 8 ? 'disabled' : ''}>🔖 + Stamp it on the body</button><span class="tiny faint">${d.stamps.length} stamp${d.stamps.length === 1 ? '' : 's'}</span></div></div></div>`;
+          <div class="row wrap mt-s" style="gap:6px;align-items:center"><button class="btn sm" data-act="addstamp" ${d.stamps.length >= 8 ? 'disabled' : ''}>🔖 + Stamp it on the body</button><span class="tiny faint">${d.stamps.length} stamp${d.stamps.length === 1 ? '' : 's'}</span></div>
+        </div></div>`;
   },
-  // a pixel grid you paint on (shapes: on/off; the logo: palette colors)
+  // a pixel grid you paint on with the palette colors
   painter(id, art, n) {
     let h = '';
-    for (let j = 0; j < n * n; j++) { const c = +(art[j] || 0); h += `<i style="${c ? 'background:' + (id === 'logo' ? this.palColor(c, S.draft) : '#e9edf5') : ''}"></i>`; }
-    return `<div class="paint ${id === 'logo' ? 'logo' : ''}" data-paint="${id}" data-n="${n}" style="--n:${n}">${h}</div>`;
+    for (let j = 0; j < n * n; j++) { const c = +(art[j] || 0); h += `<i style="${c ? 'background:' + this.palColor(c, S.draft) : ''}"></i>`; }
+    return `<div class="paint logo" data-paint="${id}" data-n="${n}" style="--n:${n}">${h}</div>`;
   },
   palColor(i, d) { const c = LOGO_PALETTE[i]; return c === 'accent' ? (d && d.style.accent) || '#f08a3c' : c; },
   // frames, cooling, ruggedness, textures, coatings and frame finishes
@@ -347,6 +340,7 @@ const PhoneLab = {
     const ev = pc.ev, lay = ev.lay;
     const sel = this.sel === 'stamp' ? null : lay.find(e => e.t === this.sel && e.t !== 'stamp');
     return `<div class="tiny dim mb-s">Drag anything onto any face it fits. Front, back and the four edges are unfolded below. Red = doesn't fit.</div>
+      <div class="row wrap mb-s" style="gap:8px;align-items:center"><span class="tiny dim">Grid</span>${segBtn('grid', [{ v: 0, label: 'Off' }, { v: 1, label: '1 mm' }, { v: 2, label: '2 mm' }, { v: 5, label: '5 mm' }], this.grid || 0)}<span class="tiny faint">${this.grid ? 'Parts snap to the grid.' : 'Turn on for precise placement.'}</span></div>
       <div class="net-wrap" id="netWrap"></div>
       <div class="row wrap mt-s">
         <button class="btn sm" data-act="autolayout" title="Let your engineers place everything">✨ Auto-arrange</button>
@@ -374,11 +368,11 @@ const PhoneLab = {
     if (this.sel === 'screen' && ev.geom.screenRect) return `<div class="card sub mt"><b>Screen</b><div class="tiny dim">Drag it around the front. The body grows if it has to; margins never go below what the parts need.</div></div>`;
     if (this.sel === 'keypad' && ev.geom.keypadRect) {
       const k = this.selKey ? keypadKeys(d, ev.geom.keypadRect, ev.geom.form).find(x => x.id === this.selKey) : null;
-      const shapes = [['', 'Body style'], ['classic', 'Classic'], ['round', 'Round'], ['flush', 'Flush'], ['bubble', 'Bubble']].concat([0, 1, 2].filter(i => artDrawn(d.art.shapes[i])).map(i => ['c' + i, '✏️ Drawn ' + (i + 1)]));
+      const shapes = [['', 'Body style'], ['classic', 'Classic'], ['round', 'Round'], ['flush', 'Flush'], ['bubble', 'Bubble']];
       return `<div class="card sub mt"><b>Keypad</b><div class="tiny dim">Drag the pad to move all keys, or drag single keys to rearrange them. Keys can't overlap, sit on the screen or hang off the front.</div>
         ${k ? `<div class="mt-s"><b class="small">Key ${esc(k.l || k.id)}</b> <span class="tiny faint">${k.moved ? 'moved' : 'in its default spot'}</span></div>
           <div class="mt-s">${segBtn('keyshape', shapes.map(([v, label]) => ({ v, label })), (d.keyShape || {})[k.id] || '')}</div>
-          <div class="row wrap mt-s"><button class="btn sm" data-keyall="1">Use this shape on every key</button>${k.moved ? '<button class="btn sm" data-keyreset="1">↺ Put this key back</button>' : ''}</div>` : '<div class="tiny faint mt-s">Click a key to pick its shape. Draw your own shapes in 🧩 Body → Key shapes.</div>'}</div>`;
+          <div class="row wrap mt-s"><button class="btn sm" data-keyall="1">Use this shape on every key</button>${k.moved ? '<button class="btn sm" data-keyreset="1">↺ Put this key back</button>' : ''}</div>` : '<div class="tiny faint mt-s">Click a key to pick its shape.</div>'}</div>`;
     }
     if (this.sel === 'stamp' && d.stamps[this.selStamp]) {
       const st = d.stamps[this.selStamp];
@@ -645,7 +639,10 @@ const PhoneLab = {
     const lay = ev.lay, bad = ev.layout.bad || {};
     const col = S.draft.color;
     let h = `<div class="net" style="width:${N.width}px;height:${N.height}px">`;
-    for (const [f, fc] of Object.entries(N.faces)) h += `<div class="net-face ${f}" style="left:${fc.x}px;top:${fc.y}px;width:${fc.w}px;height:${fc.h}px;background:${col}"><span>${f}</span></div>`;
+    const gp = (this.grid || 0) * N.k;
+    const gridBg = f => !gp ? '' : f === 'front' || f === 'back' ? `;background-image:linear-gradient(to right, rgba(255,255,255,.13) 1px, transparent 1px),linear-gradient(to bottom, rgba(255,255,255,.13) 1px, transparent 1px);background-size:${gp}px ${gp}px`
+      : f === 'left' || f === 'right' ? `;background-image:linear-gradient(to bottom, rgba(255,255,255,.13) 1px, transparent 1px);background-size:100% ${gp}px` : `;background-image:linear-gradient(to right, rgba(255,255,255,.13) 1px, transparent 1px);background-size:${gp}px 100%`;
+    for (const [f, fc] of Object.entries(N.faces)) h += `<div class="net-face ${f}" style="left:${fc.x}px;top:${fc.y}px;width:${fc.w}px;height:${fc.h}px;background-color:${col}${gridBg(f)}"><span>${f}</span></div>`;
     const fr = N.faces.front, d = S.draft;
     const zone = (r, cls, label, drag) => { const [x, y, w, hh] = r; return `<div class="net-zone ${cls} ${this.sel === cls ? 'sel' : ''} ${drag ? 'drag' : ''}" ${drag ? `data-zone="${cls}"` : ''} title="${drag ? 'Drag to move' : ''}" style="left:${fr.x + x * N.k}px;top:${fr.y + (N.Hf - y - hh) * N.k}px;width:${w * N.k}px;height:${hh * N.k}px">${label}</div>`; };
     if (g.screenRect) h += zone(g.screenRect, 'screen', 'screen', g.form !== 'fold');
@@ -670,7 +667,14 @@ const PhoneLab = {
     const net = $('.net', $('#netWrap'));
     if (!net) return;
     let drag = null;
-    const r05 = v => Math.round(v * 2) / 2;
+    const step = this.grid || 0.5, snap = v => Math.round(v / step) * step;
+    // an element's center snapped to whole grid millimetres on its face
+    const snapPos = pos => {
+      if (!this.grid || !pos) return pos;
+      const [du, dv] = faceDims(pos.f, this.pc.ev.geom);
+      const u = clamp(snap(pos.u * du) / du, 0, 1), v = pos.f === 'front' || pos.f === 'back' ? clamp(snap(pos.v * dv) / dv, 0, 1) : pos.v;
+      return Object.assign({}, pos, { u, v });
+    };
     const at = e => { const r = net.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     net.onpointerdown = e => {
       const ky = e.target.closest('[data-key]'), zn = e.target.closest('[data-zone]'), st = e.target.closest('[data-stamp]'), elDiv = e.target.closest('[data-el]');
@@ -704,13 +708,14 @@ const PhoneLab = {
       drag.moved = true;
       if (drag.kind === 'key' || drag.kind === 'zone') {
         const dx = (x - drag.x0) / k, dy = -(y - drag.y0) / k;
-        if (drag.kind === 'key') d.keyPos[drag.id] = [r05(drag.o[0] + dx), r05(drag.o[1] + dy)];
-        else if (drag.zone === 'screen') { d.place.sx = clamp(r05(drag.o[0] + dx), -15, 15); d.place.sy = clamp(r05(drag.o[1] + dy), -15, 25); }
-        else { d.place.kx = clamp(r05(drag.o[0] + dx), -15, 15); d.place.ky = clamp(r05(drag.o[1] + dy), -12, 25); }
-        drag.box.style.transform = `translate(${x - drag.x0}px, ${y - drag.y0}px)`;
+        let nx, ny;
+        if (drag.kind === 'key') { nx = snap(drag.o[0] + dx); ny = snap(drag.o[1] + dy); d.keyPos[drag.id] = [nx, ny]; }
+        else if (drag.zone === 'screen') { nx = d.place.sx = clamp(snap(drag.o[0] + dx), -15, 15); ny = d.place.sy = clamp(snap(drag.o[1] + dy), -15, 25); }
+        else { nx = d.place.kx = clamp(snap(drag.o[0] + dx), -15, 15); ny = d.place.ky = clamp(snap(drag.o[1] + dy), -12, 25); }
+        drag.box.style.transform = `translate(${(nx - drag.o[0]) * k}px, ${-(ny - drag.o[1]) * k}px)`;
       } else {
         const faces = drag.kind === 'stamp' ? LAYOUT_TYPES.stamp.faces : LAYOUT_TYPES[drag.type].faces;
-        const pos = this.pxToFace(x, y, this.N, faces);
+        const pos = snapPos(this.pxToFace(x, y, this.N, faces));
         if (!pos) return;
         const rec = drag.kind === 'stamp' ? d.stamps[drag.i] : d.layout.find(z => z.t === drag.type);
         Object.assign(rec, pos, drag.kind === 'el' ? { auto: false } : {});
@@ -856,10 +861,8 @@ const PhoneLab = {
       if (pr) { d().place = { sx: 0, sy: 0, kx: 0, ky: 0 }; d().keyPos = {}; changed(); return; }
       const pal = e.target.closest('[data-pal]');
       if (pal) { this.paintCol = +pal.dataset.pal; changed(); return; }
-      const pre = e.target.closest('[data-preset]');
-      if (pre) { const [i, name] = pre.dataset.preset.split(':'); d().art.shapes[+i] = presetMask(name, ART_N.shape); changed(); return; }
       const pcl = e.target.closest('[data-paintclear]');
-      if (pcl) { const id = pcl.dataset.paintclear; if (id === 'logo') d().art.logo = ''; else d().art.shapes[+id.slice(5)] = ''; changed(); return; }
+      if (pcl) { const id = pcl.dataset.paintclear; if (id === 'logo') d().art.logo = ''; changed(); return; }
       if (e.target.closest('[data-keyall]') && this.selKey) { const sh = (d().keyShape || {})[this.selKey] || ''; d().keyShape = {}; if (sh) d().style.keys = sh; changed(); return; }
       if (e.target.closest('[data-keyreset]') && this.selKey) { delete d().keyPos[this.selKey]; changed(); return; }
       if (e.target.closest('[data-stampdel]')) { d().stamps.splice(this.selStamp, 1); this.sel = null; changed(); return; }
@@ -879,6 +882,9 @@ const PhoneLab = {
         if (seg === 'keys') d().style.keys = v;
         if (seg === 'keytone') { d().style.keyTone = v; if (v === 'accent' && !d().style.accent) d().style.accent = BODY_COLORS[11]; }
         if (seg && seg.startsWith('catv-')) this.catVendor[seg.slice(5)] = v;
+        if (seg === 'ptool') this.paintTool = v;
+        if (seg === 'pbrush') this.paintBrush = +v;
+        if (seg === 'grid') this.grid = +v;
         if (seg === 'keyshape' && this.selKey) { if (v) d().keyShape[this.selKey] = v; else delete d().keyShape[this.selKey]; }
         if (seg === 'stampsize' && d().stamps[this.selStamp]) d().stamps[this.selStamp].s = +v;
         if (seg === 'navhome') d().nav.home = v;
@@ -916,27 +922,32 @@ const PhoneLab = {
         }
       }
     };
-    // paint on a pixel grid: drag to draw; shapes toggle on/off from the first cell, the logo uses the picked color
+    // paint the logo: drag to draw with a 1–3 px brush, or flood-fill an area; palette 0 erases
     el.onpointerdown = e => {
       const pt = e.target.closest('.paint');
       if (!pt) return;
       e.preventDefault();
-      const id = pt.dataset.paint, n = +pt.dataset.n, dd = S.draft;
-      const arr = (id === 'logo' ? dd.art.logo || '' : dd.art.shapes[+id.slice(5)] || '').padEnd(n * n, '0').slice(0, n * n).split('');
-      const cell = ev => { const r = pt.getBoundingClientRect(), i = Math.floor((ev.clientX - r.left) / r.width * n), j = Math.floor((ev.clientY - r.top) / r.height * n); return i >= 0 && j >= 0 && i < n && j < n ? j * n + i : -1; };
+      const n = +pt.dataset.n, dd = S.draft;
+      const arr = (dd.art.logo || '').padEnd(n * n, '0').slice(0, n * n).split('');
+      const cell = ev => { const r = pt.getBoundingClientRect(), i = Math.floor((ev.clientX - r.left) / r.width * n), j = Math.floor((ev.clientY - r.top) / r.height * n); return i >= 0 && j >= 0 && i < n && j < n ? [i, j] : null; };
       const c0 = cell(e);
-      if (c0 < 0) return;
-      const val = id === 'logo' ? String(this.paintCol == null ? 1 : this.paintCol) : arr[c0] === '1' ? '0' : '1';
-      const paint = i => { if (i < 0 || arr[i] === val) return; arr[i] = val; pt.children[i].style.background = val === '0' ? '' : id === 'logo' ? this.palColor(+val, dd) : '#e9edf5'; };
-      paint(c0);
+      if (!c0) return;
+      const val = String(this.paintCol == null ? 1 : this.paintCol);
+      const set = (i, j) => { if (i < 0 || j < 0 || i >= n || j >= n) return; const k = j * n + i; if (arr[k] === val) return; arr[k] = val; pt.children[k].style.background = val === '0' ? '' : this.palColor(+val, dd); };
+      const commit = () => { const str = arr.join(''); dd.art.logo = artDrawn(str) ? str : ''; changed(); };
+      if ((this.paintTool || 'pen') === 'fill') {
+        const from = arr[c0[1] * n + c0[0]];
+        if (from === val) return;
+        const stack = [c0];
+        while (stack.length) { const [i, j] = stack.pop(); if (i < 0 || j < 0 || i >= n || j >= n || arr[j * n + i] !== from) continue; set(i, j); stack.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]); }
+        commit(); return;
+      }
+      const b = this.paintBrush || 1, o = Math.floor((b - 1) / 2);
+      const dab = c => { if (c) for (let dy = 0; dy < b; dy++) for (let dx = 0; dx < b; dx++) set(c[0] - o + dx, c[1] - o + dy); };
+      dab(c0);
       pt.setPointerCapture(e.pointerId);
-      pt.onpointermove = ev => paint(cell(ev));
-      pt.onpointerup = () => {
-        pt.onpointermove = pt.onpointerup = null;
-        const str = arr.join('');
-        if (id === 'logo') dd.art.logo = artDrawn(str) ? str : ''; else dd.art.shapes[+id.slice(5)] = str.indexOf('1') >= 0 ? str : '';
-        changed();
-      };
+      pt.onpointermove = ev => dab(cell(ev));
+      pt.onpointerup = () => { pt.onpointermove = pt.onpointerup = null; commit(); };
     };
     el.oninput = e => {
       const inp = e.target;
